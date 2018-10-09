@@ -1,3 +1,3 @@
-## Splice Graphs
+## Project
 
- An R script to visual the results of rMATS
+examining splicing in different eye tissues using data from Eyeintegration

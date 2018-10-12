@@ -3,7 +3,7 @@
 # to run snakemake as batch job
 # run in the data folder for this project
 
-module load snakemake || exit 1
+module load snakemake/5.1.3 || exit 1
 
 mkdir -p 00log
 
@@ -26,4 +26,5 @@ snakemake -s $snakefile \
 --cluster-config $cluster_json \
 --cluster "$sbcmd"  --latency-wait 120  \
 -k --restart-times 0
+
 

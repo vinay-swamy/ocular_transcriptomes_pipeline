@@ -142,7 +142,7 @@ rule downloadGencode:
         '''
 
         wget -O ref/gencodeRef.fa.gz {config[refFasta_url]}
-        wget -O ref/gencodeAno_bsc_gtf.gz {config[refGTF_basic_url]}
+        wget -O ref/gencodeAno_bsc.gtf.gz {config[refGTF_basic_url]}
         wget -O ref/gencodePA_tmp.fa.gz {config[refPA_url]}
         gunzip ref/gencodeRef.fa.gz
         gunzip ref/gencodeAno_bsc.gtf.gz
@@ -246,7 +246,7 @@ rule run_stringtie:
 rule merge_gtfs_and_make_fasta:
     #this could be split into multiple rules, but
     input: expand('ref/{tissue}_st.gtf',tissue=tissues)
-    output: 'ref/combined_final.gtf','ref/combined_st.fa'
+    output: 'ref/combined_final.gtf'
     shell:
         '''
         module load stringtie

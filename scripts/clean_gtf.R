@@ -1,4 +1,4 @@
-setwd('/data/swamyvs/autoRNAseq')
+setwd('/data/swamyvs/eyeintegration_splicing')
 library(rtracklayer)
 library(dplyr)
 library(biomaRt)
@@ -15,6 +15,7 @@ gtf$type <- as.character(gtf$type)
 ref_gtf <- readGFF('ref/gencodeAno_bsc.gtf')%>%filter(gene_type=="protein_coding" )
 ref_gtf$seqid <- as.character(ref_gtf$seqid)
 gtf.tmp <- gtf
+ref_gtf.tmp <- ref_gtf
 ref_gtf$seqid[ref_gtf$seqid=='chrX'] <- gtf$seqid[gtf$seqid=='chrX'] <- 'chr23'
 ref_gtf$seqid[ref_gtf$seqid=='chrY'] <- gtf$seqid[gtf$seqid=='chrY'] <- 'chr24'
 ref_gtf$seqid[ref_gtf$seqid=='chrM'] <- gtf$seqid[gtf$seqid=='chrM'] <- 'chr25'
@@ -29,8 +30,11 @@ write.table(bed,'missing.bed',col.names = F,row.names = F,quote = F,sep ='\t',na
 colnames(bed) <- c('V1','V2','V3','transcript_id')
 bed$V1 <- as.integer(bed$V1)
 #read in bedtools result
-save.image("~/NIH/autoRNAseq/tmp.RData")
+gtf <- gtf.tmp
+ref <- ref_gtf.tmp
+save.image("tmp.RData")
 #system2('bedtools intersect -f .5  -wo -s -a missing.bed -b refgtf.bed > testout.bed')
+
 
 
 

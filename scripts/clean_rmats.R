@@ -8,9 +8,10 @@ event_header <- i_event_header
 
 
 
-> files <- i_files
-> event <- i_event
+files <- i_files
+event <- i_event
 subtissue <- i_subtissue
+combination=k[[4]]
 '
 #setwd('~/NIH/autoRNAseq/')
 setwd('/data/swamyvs/eyeintegration_splicing')
@@ -67,8 +68,13 @@ combine_PE_SE <- function(combination,event,files,event_header){
     event_header[event]
     #z_merge <- full_join(samp_PE,samp_SE,by=c("chr","strand","exonStart_0base","exonEnd","upstreamES","upstreamEE","downstreamES","downstreamEE"))
     z_merge <- full_join(samp_PE,samp_SE,by=event_header[[event]])
-    mergeCols.x <- c("GeneID.x","geneSymbol.x",'IJC_SAMPLE_1.x','SJC_SAMPLE_1.x','IJC_SAMPLE_2.x','SJC_SAMPLE_2.x')
-    mergeCols.y <- c("GeneID.y","geneSymbol.y",'IJC_SAMPLE_1.y','SJC_SAMPLE_1.y','IJC_SAMPLE_2.y','SJC_SAMPLE_2.y')
+    mergeCols.x <- c("GeneID.x","geneSymbol.x")
+    mergeCols.y <- c("GeneID.y","geneSymbol.y")
+    z_merge[is.na(z_merge$IJC_SAMPLE_1.x),mergeCols.x]  <-z_merge[is.na(z_merge$IJC_SAMPLE_1.x),mergeCols.y]
+    z_merge$PValue.x[is.na(z_merge$PValue.x)] <- z_merge$PValue.y[is.na(z_merge$PValue.x)]
+    z_merge$PValue.y[is.na(z_merge$PValue.y)] <- z_merge$PValue.x[is.na(z_merge$PValue.y)]
+    new_pvalue <- rowMeans(z_merge[c('PValue.x','PValue.y')])
+    new_fdr <- p.adjust(new_pvalue,method = "BH")
     # fill in na values for info
     parse_count_info <- function(df,col){
         t_cols <- df[,grep(col,colnames(df))]
@@ -83,15 +89,14 @@ combine_PE_SE <- function(combination,event,files,event_header){
         colnames(final) <- paste(col,c('counts','avg','med','sd'),sep = '_')
         return(final)
     }
-
-
-    z_merge[is.na(z_merge$IJC_SAMPLE_1.x),mergeCols.x]  <-z_merge[is.na(z_merge$IJC_SAMPLE_1.x),mergeCols.y]
+    count_info <- lapply(countsCol,function(x)parse_count_info(z_merge,x))
+    
     # fill in na p-values by just replicatng p-value from sample with valid values, so when we average, it will stay the same
-    z_merge$PValue.x[is.na(z_merge$PValue.x)] <- z_merge$PValue.y[is.na(z_merge$PValue.x)]
-    z_merge$PValue.y[is.na(z_smerge$PValue.y)] <- z_merge$PValue.x[is.na(z_merge$PValue.y)]
-    new_pvalue <- rowMeans(z_merge[c('PValue.x','PValue.y')])
-    new_fdr <- p.adjust(new_pvalue,method = "BH")
-    final <- data.frame(z_merge[,c("GeneID.x","geneSymbol.x",event_header[[event]],'IJC_SAMPLE_1.x','SJC_SAMPLE_1.x','IJC_SAMPLE_2.x','SJC_SAMPLE_2.x')],new_pvalue,new_fdr,stringsAsFactors = F)
+    final <- data.frame(z_merge[,c("GeneID.x","geneSymbol.x",event_header[[event]])],bind_cols(count_info),new_pvalue,new_fdr,stringsAsFactors = F)
+    #see https://groups.google.com/forum/#!topic/rmats-user-group/TW534af62fg  , setting 
+    final[final$new_pvalue==0,'new_pvalue'] <- 2.2e-16
+    final[final$new_fdr==0,'new_fdr'] <- 2.2e-16
+    
     colnames(final) <- good_cols
     path <- paste0('rmats_out/',combination[1],'_VS_',combination[2])
     dir.create(path = path)

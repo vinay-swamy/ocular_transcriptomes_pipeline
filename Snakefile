@@ -128,7 +128,7 @@ ref_trimmed='ref/gencodeRef_trimmed.fa'
 fql=config['fastq_path']
 
 rule all:
-    input: genrMATsinput(subtissues_PE,'_PE'),genrMATsinput(subtissues_SE,'_SE')
+    input: genrMATsinput(subtissues_PE,'_PE'),genrMATsinput(subtissues_SE,'_SE'),expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names)
     #,'smoothed_filtered_tpms.csv'
 '''
 ****PART 1**** download files
@@ -244,9 +244,9 @@ rule run_stringtie:
         '''
 #gffread v0.9.12.Linux_x86_64/
 rule merge_gtfs_and_make_fasta:
-    #this could be split into multiple rules, but
+    #this could be split into multiple rules, but its a lot easier tostring it together
     input: expand('ref/{tissue}_st.gtf',tissue=tissues)
-    output: 'ref/combined_final.gtf'
+    output: 'ref/combined_final.gtf','ref/combined_stringtie_tx.fa'
     shell:
         '''
         module load stringtie
@@ -258,6 +258,7 @@ rule merge_gtfs_and_make_fasta:
         bedtools intersect -f .5  -wo -s -a missing.bed -b refgtf.bed > testout.bed
         module load R
         Rscript scripts/clean_gtf_part2.R
+        ./gffread/gffread -w {output[1]} -g {ref_PA} ref/combined_final.gtf
 
         '''
 
@@ -325,3 +326,40 @@ rule runrMATS:
         module load rmats
         rmats --b1 {input[0]} --b2 {input[1]}  -t $flag --readLength 130 --gtf {input[3]} --bi {input[2]} --od {output[0]}
         '''
+'''
+PART 5 - quantify new transcripts
+'''
+
+rule build_salmon_index:
+    input:  'ref/combined_stringtie_tx.fa'
+    output:'ref/salmonindex_st'
+    run:
+        salmonindexcommand=loadSalmon + 'salmon index -t {} --gencode -i {} --type quasi --perfectHash -k 31'.format(input[0],output[0])
+        sp.run(salmonindexcommand, shell=True)
+
+rule run_salmon:
+    input: lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.id),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.id)] if sample_dict[wildcards.id]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.id),
+        'ref/salmonindex_st'
+    output: 'quant_files/{sampleID}/quant.sf'
+    log: 'logs/{sampleID}.log'
+    run:
+        id=wildcards.sampleID
+        #tissue=wildcards.tissue
+        paired=sample_dict[id]['paired']
+        if paired:
+            salmon_command=loadSalmon + 'salmon quant -i {} -l A --gcBias --seqBias  -1 {} -2 {} -o {}'.format(input[2],input[0],input[1],'quant_files/{}'.format(id))
+        else:
+            salmon_command=loadSalmon + 'salmon quant -i {} -l A --gcBias --seqBias -r {} -o {}'.format(input[1],input[0],'quant_files/{}'.format(id))
+        sp.run(salmon_command,shell=True)
+        log1='logs/{}.log'.format(id)
+        salmon_info='quant_files/{}/aux_info/meta_info.json'.format(id)
+        if os.path.exists(salmon_info):
+            with open(salmon_info) as file:
+                salmonLog=json.load(file)
+                mappingscore=salmonLog["percent_mapped"]
+            if mappingscore <= 50:
+                with open(log1,'w+') as logFile:
+                    logFile.write('Sample {} failed QC mapping Percentage: {}'.format(id,mappingscore))
+        else:
+            with open(log1,'w+') as logFile:
+                logFile.write('Sample {} failed to align'.format(id))

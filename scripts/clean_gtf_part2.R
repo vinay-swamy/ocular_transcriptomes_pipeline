@@ -33,17 +33,25 @@ out_gtf <- out_gtf[,1:17]
 #gtf_final <- rbind(out_gtf,ref_genes)
 gtf_final <- out_gtf
 # identify what transcripts are novel
-gtf_final$added_by_stringtie=!grepl('ENST',gtf_final$transcript_id)
+v  <- !grepl('ENST',gtf_final$transcript_id)
+gtf_final$added_by_stringtie <- ifelse(v,'y','n')
 
+
+save(gtf_final,file = 'ref/gtf_unformatted.Rdata')
 #gtf_final[is.na(gtf_final)] <- '.'
-to_write <- lapply(colnames(gtf_final)[9:17],function(x)paste0(x,' "',gtf_final[,x],'" '))
+to_write <- apply(gtf_final[,9:18],1,as.list)%>%lapply(unlist)%>%
+    lapply(na.omit)%>%lapply( function(y)lapply(names(y), function(x) paste0(x, ' "',y[x],'" '))%>%unlist%>%
+                                  paste(collapse = ' '))%>%as.character()
 
-to_write <- paste( paste0('gene_id ',gtf_final$gene_id),
-                   paste0(' transcript_id ','"',gtf_final$transcript_id,'"'),
-                   paste0(' exon_numer ','"',gtf_final$exon_number,'"'),
-                   paste0(' gene_name ','"',gtf_final$gene_name,'"'),
-		   paste0(' added_by_stringtie ','"',gtf_final$added_by_stringtie,'"'),sep = ';')
-gtf_final$to_write <- to_write  
+#lapply(names(k), function(x) paste0(x, ' "',k[x],'" '))%>%unlist%>%paste(collapse = ' ')
+
+
+# ls fto_write <- paste( paste0('gene_id ',gtf_final$gene_id),
+#                    paste0(' transcript_id ','"',gtf_final$transcript_id,'"'),
+#                    paste0(' exon_numer ','"',gtf_final$exon_number,'"'),
+#                    paste0(' gene_name ','"',gtf_final$gene_name,'"'),
+# 		   paste0(' added_by_stringtie ','"',gtf_final$added_by_stringtie,'"'),sep = ';')
+gtf_final$to_write <- to_write
 gtf_final <- arrange(gtf_final, seqid, start, desc(type))
 gtf_final <- arrange(gtf_final, seqid,start, gene_id, transcript_id,type)
-write.table(gtf_final[,c(1:8,14)],'ref/combined_final.gtf',sep = '\t',quote = F, col.names = F,row.names = F)
+write.table(gtf_final[,c(1:8,19)],'ref/combined_final.gtf',sep = '\t',quote = F, col.names = F,row.names = F)

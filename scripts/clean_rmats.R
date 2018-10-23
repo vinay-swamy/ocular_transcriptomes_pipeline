@@ -13,25 +13,56 @@ event <- i_event
 subtissue <- i_subtissue
 combination=k[[4]]
 '
-#setwd('~/NIH/autoRNAseq/')
-setwd('/data/swamyvs/eyeintegration_splicing')
+setwd('~/NIH/eyeintegration_splicing/')
+#setwd('/data/swamyvs/eyeintegration_splicing')
 library(dplyr)
 # i_event <- 'MXE.MATS.JC.txt'
 #combination=k[[1]]
 #somehow this will fail sometimes as a function but will run fine line by line
 combine_PE_SE <- function(combination,event,files,event_header){
+    parse_count_info <- function(df,col){
+        t_cols <- df[,grep(col,colnames(df))]
+        if(is.null(dim(t_cols))){
+            comb_counts <- lapply(t_cols,function(x) strsplit(x,','))
+            flattened_counts <- comb_counts%>%lapply(na.omit)%>%
+                lapply(function(x) lapply(x,as.numeric)%>%unlist)
+        }else{
+            comb_counts <- apply(t_cols,2,function(x) strsplit(x,','))
+            flattened_counts <- sapply(1:nrow(t_cols),function(x)c(comb_counts[[1]][[x]],comb_counts[[2]][[x]]) )%>%lapply(na.omit)%>%
+                lapply(function(x) lapply(x,as.numeric)%>%unlist)    
+        }
+       
+        counts <-sapply(flattened_counts, sum)
+        t_mean <- sapply(flattened_counts, mean)
+        t_median <- sapply(flattened_counts,median)
+        t_sd <-  sapply(flattened_counts,sd)
+        final <- data.frame(counts,t_mean,t_median,t_sd)
+        colnames(final) <- paste(col,c('counts','avg','med','sd'),sep = '_')
+        return(final)
+    }
+    
     target_files <- files[grepl(combination[1],files)]%>%.[grepl(combination[2],.)]
     if(length(target_files)==1){
         countsCol<-c('IJC_SAMPLE_1','SJC_SAMPLE_1','IJC_SAMPLE_2','SJC_SAMPLE_2')
         tmp <- paste('rmats_out',target_files,event, sep = '/')%>%read.table(header = T,sep = '\t',stringsAsFactors = F)
+        good_cols <- c("GeneID","geneSymbol",event_header[[event]],'IJC_SAMPLE_1','SJC_SAMPLE_1','IJC_SAMPLE_2','SJC_SAMPLE_2',"PValue","FDR")
         #tmp[,countsCol] <- apply(tmp[,countsCol],2, function(x) sapply(x,function(y) strsplit(y,',')%>%unlist%>%as.numeric%>%sum) )
-        path <- paste0('rmats_out/',combination[1],'_VS_',combination[2])
+        tmp <- tmp[,good_cols]
+        new_pvalue <- tmp$PValue
+        new_fdr <- tmp$FDR
+        count_info <- lapply(countsCol,function(x)parse_count_info(tmp,x))
+        final <- data.frame(tmp[,c("GeneID","geneSymbol",event_header[[event]])],bind_cols(count_info),new_pvalue,new_fdr,stringsAsFactors = F)
+        path <- paste0('rmats_analysis/',target_files)
+        final[final$new_pvalue==0,'new_pvalue'] <- 2.2e-16
+        final[final$new_fdr==0,'new_fdr'] <- 2.2e-16
+        #colnames(final) <- good_cols
         dir.create(path = path)
-        write.table(tmp,paste(path,event,sep='/'),row.names = F,col.names = T, quote = F,sep = '\t')
+        write.table(final,paste(path,event,sep='/'),row.names = F,col.names = T, quote = F,sep = '\t')
         #if(event=='A3SS.MATs.JC.txt') unlink(target_files,recursive = T)# after all events, remove the folders
         #if(event=='A3SS.MATS.JC.txt') unlink(paste0('rmats_out/',target_files),recursive = T)
         return(0)
     }else if(length(target_files)==0){
+        print('comb')
         print('REEEEEEEEEEEEEE')
         return(1)
     }
@@ -76,19 +107,7 @@ combine_PE_SE <- function(combination,event,files,event_header){
     new_pvalue <- rowMeans(z_merge[c('PValue.x','PValue.y')])
     new_fdr <- p.adjust(new_pvalue,method = "BH")
     # fill in na values for info
-    parse_count_info <- function(df,col){
-        t_cols <- df[,grep(col,colnames(df))]
-        comb_counts <- apply(t_cols,2,function(x) strsplit(x,','))
-        flattened_counts <- sapply(1:nrow(t_cols),function(x)c(comb_counts[[1]][[x]],comb_counts[[2]][[x]]) )%>%lapply(na.omit)%>%
-          lapply(function(x) lapply(x,as.numeric)%>%unlist)
-        counts <-sapply(flattened_counts, sum)
-        t_mean <- sapply(flattened_counts, mean)
-        t_median <- sapply(flattened_counts,median)
-        t_sd <-  sapply(flattened_counts,sd)
-        final <- data.frame(counts,t_mean,t_median,t_sd)
-        colnames(final) <- paste(col,c('counts','avg','med','sd'),sep = '_')
-        return(final)
-    }
+   
     count_info <- lapply(countsCol,function(x)parse_count_info(z_merge,x))
     
     # fill in na p-values by just replicatng p-value from sample with valid values, so when we average, it will stay the same
@@ -97,8 +116,7 @@ combine_PE_SE <- function(combination,event,files,event_header){
     final[final$new_pvalue==0,'new_pvalue'] <- 2.2e-16
     final[final$new_fdr==0,'new_fdr'] <- 2.2e-16
     
-    colnames(final) <- good_cols
-    path <- paste0('rmats_out/',combination[1],'_VS_',combination[2])
+    path <- paste0('rmats_analysis/',combination[1],'_VS_',combination[2])
     dir.create(path = path)
     write.table(final,paste(path,event,sep='/'),row.names = F,col.names = T, quote = F,sep = '\t')
 
@@ -113,7 +131,7 @@ combine_fromGTF.novel <- function(event,files,first=TRUE){
             }
         }else{
             next1 <- read.table(paste0(path,'/fromGTF.novelEvents.',event,'.txt'),sep = '\t',header = T,stringsAsFactors = F)
-            prev <- anti_join(next1,prev)%>%rbind(.,prev)# BAAAAAAAAD
+            prev <- anti_join(next1,prev)%>%rbind(.,prev)# BAAAAAAAAD -  allocate dont add
         }
     }
     return(prev)
@@ -130,24 +148,30 @@ i_event_header <- list(SE.MATS.JC.txt=c('chr'	,'strand',	'exonStart_0base',	'exo
 
 events <- names(i_event_header)
 i_files <- dir('rmats_out')
-subtissues_PE <- c("Retina_Adult.Tissue", "RPE_Cell.Line", "ESC_Stem.Cell.Line" , "RPE_Adult.Tissue","body" )# add body back in  at some point
+#c("Retina_Adult.Tissue", "RPE_Cell.Line", "ESC_Stem.Cell.Line" , "RPE_Adult.Tissue","body",'Cornea_Adult.Tissue','' )# add body back in  at some point
+subtissues_PE <- c("RPE_Stem.Cell.Line","RPE_Cell.Line", "ESC_Stem.Cell.Line" , "Retina_Adult.Tissue", "RPE_Adult.Tissue", "RPE_Fetal.Tissue",     "Cornea_Adult.Tissue","Cornea_Fetal.Tissue" , "Cornea_Cell.Line",  "Retina_Stem.Cell.Line", "body")
+
+
+
 k <- combn(subtissues_PE,2,simplify = F)
+l <- k[grepl('body',k)]
+k <- l
 for (i in 1:length(k)){
   i_combination <- k[[i]]
   for(j in 1:length(events)){
     i_event <- events[j]
-    combine_PE_SE(combination = i_combination,event = i_event,files = i_files,event_header = i_event_header)
+    try(combine_PE_SE(combination = i_combination,event = i_event,files = i_files,event_header = i_event_header),outFile = stdout())
   }
 }# add PESE
 
 
-# generate tables with all novel events
-# t <- c('SE','RI','MXE','A5SS','A3SS')
-# files <- dir('~/NIH/autoRNAseq/old_rmats_out',full.names = T)
-# for(i in t){
-#     all_ev <-  combine_fromGTF.novel('SE',files)
-#     write.table(all_ev,paste0('all.',i,'.novelevents.txt'),quote = F,col.names = T,row.names = F,sep = '\t')
-# }
+#generate tables with all novel events
+t <- c('SE','RI','MXE','A5SS','A3SS')
+files <- dir('~/NIH/eyeintegration_splicing/rmats_tmp/',full.names = T)
+for(i in t){
+    all_ev <-  combine_fromGTF.novel(i,files)
+    write.table(all_ev,paste0('rmats_analysis/','all.',i,'.novelevents.txt'),quote = F,col.names = T,row.names = F,sep = '\t')
+}
 
 
 

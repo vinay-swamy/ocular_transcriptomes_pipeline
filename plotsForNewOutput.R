@@ -26,24 +26,27 @@ eq <- function(x,cons){
 #assuming '+' strand
 #gdata::keep(gtf,sure=T)
 
-setwd("~/NIH/autoRNAseq/rmats_final/Retina_Adult.Tissue")
-gtf <- readGFF('~/NIH/autoRNAseq/ref/combined_final.gtf')
+setwd("~/NIH/eyeintegration_splicing/")
+gtf <- readGFF('~/NIH/eyeintegration_splicing/ref/combined_final.gtf')
+gtf <- load('ref/gtf_unformatted.Rdata')
 all_events=read.table('SE.MATS.JC.txt',stringsAsFactors = F,header = T)
-all_events[,c('IJC_SAMPLE_1','SJC_SAMPLE_1')] <- apply(all_events[,c('IJC_SAMPLE_1','SJC_SAMPLE_1')],2, function(x) sapply(x,function(y) strsplit(y,',')%>%unlist%>%as.numeric%>%sum) )
+#all_events[,c('IJC_SAMPLE_1','SJC_SAMPLE_1')] <- apply(all_events[,c('IJC_SAMPLE_1','SJC_SAMPLE_1')],2, function(x) sapply(x,function(y) strsplit(y,',')%>%unlist%>%as.numeric%>%sum) )
 #only protein coding tx's
-gtf_exons<- gtf%>%filter(type=='exon')
+#gtf_exons<- gtf%>%filter(type=='exon')
 
 splice_graph<- function(gene,gtf,all_events){
   genes <- filter(all_events, geneSymbol==gene)
-  gtf.gene <- filter(gtf_exons,gene_name==gene,type=='exon')%>%arrange(start)#%>%select(1:7)
+  gtf.gene <- filter(gtf,gene_name==gene,type=='exon')%>%arrange(start)#%>%select(1:7)
   gtf.gene$start=gtf.gene$start-1
   #exons ends are ok, exon starts are off by 1
   tx_ids <- unique(gtf.gene$transcript_id)
-  #i=tx_ids[1]
+  i=tx_ids[3]
+  gtf.tocomp <- 
   #plot every tx in a gene
   for(i in tx_ids){
     tx_name=i
     gtf.tx <- filter(gtf.gene,transcript_id==tx_name,type=='exon')%>%arrange(start)#%>%select(1:7)
+    gtf.tocomp <- filter(gtf.gene,transcript_id==tx_ids[1],type=='exon')%>%arrange(start)
     #pick rmats events in which all three exons match thsoe in GTF
     exon_coords <- as.matrix(gtf.tx[,c('start','end')]) 
     exon_col_names <- c("exonStart_0base","exonEnd" ,"upstreamES", "upstreamEE" ,"downstreamES" ,"downstreamEE")
@@ -51,27 +54,36 @@ splice_graph<- function(gene,gtf,all_events){
     #there has to be a better way to do this
     
     to_plot=logical(nrow(rmats_exon_coords))
+    # for(j in 1:nrow(rmats_exon_coords)){
+    #     #b's are exon start and ends in rmats data, b is true if rmats exon start & end match gtf 
+    #     #now that we are using rmats to find new stuff, might want to consider keeping all exons
+    #     b1 <- (apply(exon_coords,1 ,function (x) all(x==rmats_exon_coords[j,1:2])))
+    #     b2 <- any(apply(exon_coords,1 ,function (x) all(x==rmats_exon_coords[j,3:4])))
+    #     b3 <- any(apply(exon_coords,1 ,function (x) all(x==rmats_exon_coords[j,5:6])))
+    #     to_plot[j] <- b1 && b2 && b3
+    # }
+    
     for(j in 1:nrow(rmats_exon_coords)){
       #b's are exon start and ends in rmats data, b is true if rmats exon start & end match gtf 
       #now that we are using rmats to find new stuff, might want to consider keeping all exons
-      b1 <- any(apply(exon_coords,1 ,function (x) all(x==rmats_exon_coords[j,1:2])))
-      b2 <- any(apply(exon_coords,1 ,function (x) all(x==rmats_exon_coords[j,3:4])))
-      b3 <- any(apply(exon_coords,1 ,function (x) all(x==rmats_exon_coords[j,5:6])))
+        b1 <- any(apply(exon_coords,1 ,function (x) isTRUE(all.equal(x,rmats_exon_coords[j,1:2],tolerance = 15))))
+        b2 <- any(apply(exon_coords,1 ,function (x) isTRUE(all.equal(x,rmats_exon_coords[j,1:2],tolerance = 15))))
+        b3 <- any(apply(exon_coords,1 ,function (x) isTRUE(all.equal(x,rmats_exon_coords[j,1:2],tolerance = 15))))
       to_plot[j] <- b1 && b2 && b3
     }
     rmats_to_plot <- genes
     rmats_to_plot$in_gtf <- to_plot
     novel_exons <- genes[!to_plot,]
     
-    
     #prep_plots
     if(nrow(rmats_to_plot)<2) {
       print('plop')  
       return(0)
     }
-    start <- gtf.tx$start[1]/100
+    start <- min(gtf.tx$start[1]/100, min(rmats_to_plot$upstreamES)/100,min(novel_exons$upstreamES)/100)
     #scale genome coordinates
     gtf.tx[,c('start','end')] <- gtf.tx[,c('start','end')]/100 -start
+    gtf.tocomp[c('start','end')] <- gtf.tocomp[,c('start','end')]/100 -start
     rmats_to_plot[,exon_col_names] <- rmats_to_plot[,exon_col_names]/100-start
     novel_exons[,c('exonStart_0base','exonEnd')] <- novel_exons[,c('exonStart_0base','exonEnd')]/100-start
     #current idea: each event contains three edges: a single long edge in the skipped isoform and 2 short edges in the included
@@ -79,13 +91,14 @@ splice_graph<- function(gene,gtf,all_events){
     #is just the relative counts for the exlcusion event. for the short edges the inclusion counts are distributed over 2 edges,
     #so split the weight over the edges. remember to account for split merging edges.
     # also incusion edges counts are going to be duplicated when merged below, so cut their counts by 2 again(so divide by 4)
-    rmats_to_plot[,"IJC_SAMPLE_1"] <-  rmats_to_plot[,"IJC_SAMPLE_1"]/4
+    rmats_to_plot[,"IJC_SAMPLE_1_avg"] <-  rmats_to_plot[,"IJC_SAMPLE_1_avg"]/4
     
     
     prep_for_plots <- function(rmats_to_plot,in_gtf){
-    edges <- rbind(as.matrix(rmats_to_plot[,c("upstreamEE","downstreamES", "SJC_SAMPLE_1")]),# skipped junction
-                   as.matrix(rmats_to_plot[,c("upstreamEE","exonStart_0base","IJC_SAMPLE_1")]),#included junction
-                   as.matrix(rmats_to_plot[,c("exonEnd","downstreamES","IJC_SAMPLE_1")]))#included junction 
+    edges <- rbind(as.matrix(rmats_to_plot[,c("upstreamEE","downstreamES", "SJC_SAMPLE_1_avg")]),# skipped junction
+                   as.matrix(rmats_to_plot[,c("upstreamEE","exonStart_0base","IJC_SAMPLE_1_avg")]),#included junction
+                   as.matrix(rmats_to_plot[,c("exonEnd","downstreamES","IJC_SAMPLE_1_avg")]))#included junction 
+    edgeList <- split(edges,seq(nrow(edges)))
     
     edges <- as.data.frame(edges)
     rmats_to_plot <- aggregate(edges,list(edges$upstreamEE,edges$downstreamES),sum)
@@ -144,12 +157,14 @@ splice_graph<- function(gene,gtf,all_events){
     
         #rm(start,end,height,mp)
     plot <- plot + 
-      geom_label(data = rmats_to_plot,aes(x=mp,y=height,label=round(total_weight,3)))+
+      geom_label(data = rmats_to_plot,aes(x=mp,y=height,label=round(counts,3)))+
       geom_rect(xmin=min(gtf.tx$start),xmax=max(gtf.tx$end),ymin=-rheight/2,ymax=rheight/2,color='white',fill='white')+
       geom_hline(yintercept=0,alpha=.9, size=1)+ggtitle(paste0(gene,'-',tx_name,' Splicing Graph'))+
     geom_rect(data = novel_exons,aes(xmin=exonStart_0base,xmax=exonEnd,ymin=-rheight/2,ymax=rheight/2),color='red',fill='red')+
-      geom_rect(data = gtf.tx,aes(xmin=start,xmax=end,ymin=-rheight/2,ymax=rheight/2),color='black',fill='black')+theme_void()+
+        geom_rect(data = gtf.tocomp,aes(xmin=start,xmax=end,ymin=-rheight/2,ymax=rheight/2),color='green',fill='green')+
+         geom_rect(data = gtf.tx,aes(xmin=start,xmax=end,ymin=-rheight/2,ymax=rheight/2),color='black',fill='black')+theme_void()+
      labs(subtitle='Retina.Adult.Tissue')+theme(plot.title=element_text(size=pwidth/10),plot.subtitle = element_text(size = pwidth/10 -10))
+    
     print(plot)
 
     ggsave(paste0( gene,'_',tx_name,'.png'),height = pheight, width = pwidth,units = 'mm',limitsize = F )

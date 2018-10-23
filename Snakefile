@@ -194,7 +194,7 @@ rule build_STARindex:
         '''
         module load STAR
         mkdir -p ref/STARindex
-        STAR --runThreadN 8 --runMode genomeGenerate --genomeDir {output[0]} --genomeFastaFiles {input[0]} --sjdbGTFfile {input[1]} --sjdbOverhang 100
+        STAR --runThreadN 16 --runMode genomeGenerate --genomeDir {output[0]} --genomeFastaFiles {input[0]} --sjdbGTFfile {input[1]} --sjdbOverhang 100
 
         '''
 
@@ -250,7 +250,7 @@ rule merge_gtfs_and_make_fasta:
     shell:
         '''
         module load stringtie
-        stringtie --merge -G ref/gencodeAno_bsc.gtf -o ref/comb.gtf ref/Retina_st.gtf ref/RPE_st.gtf ref/ESC_st.gtf ref/Cornea_st.gtf
+        stringtie --merge -G ref/gencodeAno_bsc.gtf -o ref/comb.gtf ref/Retina_st.gtf ref/RPE_st.gtf ref/ESC_st.gtf ref/Cornea_st.gtf ref/body_st.gtf
 
         module load R
         Rscript scripts/clean_gtf.R
@@ -275,7 +275,7 @@ rule rebuild_star_index:
         '''
         module load STAR
         mkdir -p {output[0]}
-        STAR --runThreadN 8 --runMode genomeGenerate --genomeDir {output[0]} --genomeFastaFiles {input[0]} --sjdbGTFfile {input[1]} --sjdbOverhang 100
+        STAR --runThreadN 16 --runMode genomeGenerate --genomeDir {output[0]} --genomeFastaFiles {input[0]} --sjdbGTFfile {input[1]} --sjdbOverhang 100
         '''
 
 
@@ -338,7 +338,7 @@ rule build_salmon_index:
         sp.run(salmonindexcommand, shell=True)
 
 rule run_salmon:
-    input: lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.id),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.id)] if sample_dict[wildcards.id]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.id),
+    input: lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
         'ref/salmonindex_st'
     output: 'quant_files/{sampleID}/quant.sf'
     log: 'logs/{sampleID}.log'

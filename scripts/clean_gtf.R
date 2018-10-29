@@ -44,7 +44,7 @@ gtf$seqid <- as.character(gtf$seqid)
 gtf$type <- as.character(gtf$type)
 #gtf <-gtf[grep('chr',gtf$seqid),]
 #fix some formatting
-ref_gtf <- readGFF('ref/gencodeAno_bsc.gtf')%>%filter(gene_type=="protein_coding" )
+ref_gtf <- readGFF('ref/gencodeAno_bsc.gtf')
 ref_gtf$seqid <- as.character(ref_gtf$seqid)
 gtf.tmp <- gtf
 ref_gtf.tmp <- ref_gtf

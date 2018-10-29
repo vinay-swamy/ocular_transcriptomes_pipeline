@@ -34,7 +34,7 @@ add_novel_exon_flag <- function(novel,gene){
     novel[novel$type=='exon','is_novel_exon'] <- !novel_list%in%ref_list
     return(novel)
 }
-samp_ogtf <- out_gtf[1:1000,]
+
 out_gtf <- filter(out_gtf,gene_name%in%events.filtered$geneSymbol)
 nov_knowngene <- filter(out_gtf, grepl('MSTR',transcript_id),!grepl('MSTR',gene_name))
 out_gtf$is_novel_exon <- FALSE 

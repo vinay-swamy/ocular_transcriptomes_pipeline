@@ -6,6 +6,7 @@ library('SNPlocs.Hsapiens.dbSNP149.GRCh38',lib.loc = '~/R/3.5/library/')
 library(biomaRt)
 library(UpSetR)
 library(ggplot2)
+library(gridExtra)
 # skipped_exon <- read.table("SE.MATS.JC.txt",sep = '\t', header = T,stringsAsFactors = F)
 # counts <- c("IJC_SAMPLE_1", "SJC_SAMPLE_1", "IJC_SAMPLE_2", "SJC_SAMPLE_2")
 # skipped_exon[is.na(skipped_exon)] <- 1
@@ -25,8 +26,9 @@ library(ggplot2)
 # mart <- useMart('ENSEMBL_MART_SNP','hsapiens_snp')
 # snps.chr15 <- getSNPlocs('15')
 ##PART 1 looking at gtf
+source('plot_testing V5.broken.R')
 tissues <- c('Retina','RPE','Cornea','ESC')
-gtf <- load('ref/gtf_unformatted_new.Rdata')
+gtf <- load('ref/gtf_unformatted.Rdata')
 gtf.tx <-dplyr:: filter(gtf_final,type=='transcript')
 sample_table <- read.table('samplesrun_1010.tissue',header = F, stringsAsFactors = F,sep = '\t')
 tissue_count <- table(sample_table$V4)%>%.[c('Retina','RPE','Cornea','ESC')]
@@ -49,12 +51,17 @@ novel_tx_by_tissue <- lapply(tissues, function(x) novel[,x]%>%na.omit)
 names(novel_tx_by_tissue) <- tissues
 k <- lapply(1:nrow(gtf.tx), function(x) is.na(gtf.tx[x,tissues]))%>%lapply(all)%>%unlist
 missinall <- gtf.tx[k,]%>%filter( is.na(ref_gene_id))
-
-
 upset(fromList(tx_by_tissue),order.by = 'freq') #all tx
 upset(fromList(novel_tx_by_tissue),order.by = 'freq')
-stringTie_results$unique_novel_transcripts <- c(1645,1033,2111,847)
-save(stringTie_results,file = 'stringTie_results.Rdata')
+
+
+
+sample_table <- read.table('samplesrun_1010.tissue',stringsAsFactors = F, header = F,sep = '\t')
+colnames(sample_table) <- c('sample','run','paired','tissue','subtissue','origin')
+samples_eye <- filter(sample_table,tissue%in%c('Retina','RPE','Cornea','ESC'))
+body_synth <- read.table('ref/synth_body.txt',stringsAsFactors = F, header = F)
+sample_table <- rbind(samples_eye,filter(sample_table, sample%in%body_synth$V1))
+sample_table[!sample_table$tissue%in%c('Retina','RPE','Cornea','ESC'),c('tissue','subtissue')] <- 'body'
 files <- paste0('quant_files/',sample_table$sample,'/quant.sf')
 load('ref/gtf_unformatted_new.Rdata')
 txdb <- filter(gtf_final,type=='transcript')%>%select(transcript_id,gene_name)
@@ -67,15 +74,99 @@ txi.counts_by_tissue <- lapply(tissues, function(x) filter(sample_table,tissue==
 counts_novel_by_tissues <-lapply(txi.counts_by_tissue,function(x) x[rowSums(x) > 50*ncol(x),])%>%lapply( function(x) x[grepl('MSTR',rownames(x)),])
 tx_novel_by_tis <- lapply(counts_novel_by_tissues,rownames)
 names(tx_novel_by_tis) <- tissues
-upset(fromList(tx_novel_by_tis),order.by = 'freq')
+i <- lapply(tissues, function(x) setdiff(tx_novel_by_tis[[x]],tx_novel_by_tis[!tissues%in%x])%>%unlist%>%length)
+#have to manuallly save upsets, so annoying
+tx_novel_by_tis_count <- lapply(tx_novel_by_tis, length)
+stringTie_results$novel_expressed_transcripts <- tx_novel_by_tis_count
+load('tables_for_poster.Rdata')
+mytheme <- gridExtra::ttheme_default(
+    core = list(fg_params=list(cex = 3.0)),
+    colhead = list(fg_params=list(cex = 3.0)),
+    rowhead = list(fg_params=list(cex = 3.0)))
+
+grid.table(ret_signoveltx,theme=mytheme)
+grid.table(rpe_signovelret,theme=mytheme)
+
+
+upset(fromList(tx_novel_by_tis[-4]),order.by = 'freq',text.scale = 2.5)
+ggsave('upset_major_tissues.tiff',device = 'tiff',width = 9, height = 6, units = 'in',res = 300)
 subtissue <- unique(sample_table$subtissue)[1:10]
 txi.counts_by_subtissue <- lapply(subtissue, function(x) filter(sample_table,subtissue==x)[,'sample']%>%txi$counts[,.])%>%lapply(as.data.frame)
 counts_by_subtissue <-lapply(txi.counts_by_subtissue,function(x) x[rowSums(x) > 50*ncol(x),])%>%lapply( function(x) x[grepl('MSTR',rownames(x)),])
 novel_tx_by_subtissue <- lapply(counts_by_subtissue,rownames)
 names(novel_tx_by_subtissue) <- subtissue
-upset(fromList(novel_tx_by_subtissue[c('Retina_Adult.Tissue','Retina_Stem.Cell.Line')]),order.by = 'freq')
-upset(fromList(novel_tx_by_subtissue[c('RPE_Adult.Tissue','RPE_Fetal.Tissue','RPE_Cell.Line','RPE_Stem.Cell.Line')]),order.by = 'freq')
-upset(fromList(novel_tx_by_subtissue[c('Cornea_Adult.Tissue','Cornea_Fetal.Tissue','Cornea_Cell.Line')]),order.by = 'freq')
+upset(fromList(novel_tx_by_subtissue[c('Retina_Adult.Tissue','Retina_Stem.Cell.Line')]),order.by = 'freq',text.scale = 2.5)
+ggsave('upset_Retina.tiff',device = 'tiff',width = 9, height = 6, units = 'in',dpi = 300)
+upset(fromList(novel_tx_by_subtissue[c('RPE_Adult.Tissue','RPE_Fetal.Tissue','RPE_Cell.Line','RPE_Stem.Cell.Line')]),order.by = 'freq',text.scale = 2.5)
+ggsave('upset_RPE.tiff',device = 'tiff',width = 9, height = 6, units = 'in',dpi = 300)
+upset(fromList(novel_tx_by_subtissue[c('Cornea_Adult.Tissue','Cornea_Fetal.Tissue','Cornea_Cell.Line')]),order.by = 'freq',text.scale = 2.5)
+ggsave('upset_Cornea.tiff',device = 'tiff',width = 9, height = 6, units = 'in',dpi = 300)
+#look at novel tx's
+novel_tx <- filter(txdb,grepl('MSTR',transcript_id))
+tx.counts.novel <- txi.counts[rownames(txi.counts)%in%novel_tx$transcript_id,]%>%as.data.frame()
+keep <- which(rowSums(tx.counts.novel)>50*ncol(tx.counts.novel)) #~avg 50 counts per sample, still keeping a lot of stuff 
+tx.counts.novel <- tx.counts.novel[keep,]
+colnames(tx.counts.novel) <-colnames(txi.counts) <-  sample_table$sample
+counts_by_tissue <- lapply(unique(sample_table$subtissue), function(x) filter(sample_table,subtissue==x)[,'sample']%>%tx.counts.novel[,.]%>%rowMeans)%>%do.call(cbind,.)%>%as.data.frame
+colnames(counts_by_tissue) <- unique(sample_table$subtissue)  
+new_rows <- filter(txdb, transcript_id%in%rownames(counts_by_tissue))%>%select(comb_name)
+rownames(counts_by_tissue) <- new_rows$comb_name
+n_genes <- rownames(counts_by_tissue)%>%lapply(function(x) strsplit(x,'-')[[1]][1])%>%unlist%>%unique
+rpe_genes[rpe_genes%in%n_genes]# see below for RPE genes
+RPE_at <- read.table("rmats_analysis/RPE_Adult.Tissue_PE_VS_body_PE/SE.MATS.JC.txt" ,header = T, sep = '\t',stringsAsFactors = F)
+splice_graph(all_events = RPE_at,gtf = gtf_final,gene='RLBP1',sub_tissue = 'RPE.Adult.Tissue')
+#didnt find anything good
+ret_at <- read.table('rmats_analysis/Retina_Adult.Tissue_VS_body/SE.MATS.JC.txt',header = T, sep = '\t',stringsAsFactors = F)
+splice_graph(gene="TEAD1",all_events = ret_at,gtf = gtf_final,sub_tissue = 'Retina_adult')
+
+
+#mak- got something but its a little big
+#trnt - maybe a retained intron
+#RAX2 - maybe
+#AIPL1
+#DHX1
+all_events <- ret_at
+events.filtered <- filter(all_events,new_fdr<=.05)
+sig_ret <- filter(events.filtered, geneSymbol%in%ret_genes)
+#all.equal(x%>%as.numeric,rmats_exon_coords[j,c('start','end')]%>%as.numeric,tolerance = n,check.names=F
+
+ret_at <- read.table('rmats_analysis/Retina_Adult.Tissue_VS_body/SE.MATS.JC.txt',header = T, sep = '\t',stringsAsFactors = F)
+RPE_at <- read.table('rmats_analysis/RPE_Adult.Tissue_PE_VS_body_PE/SE.MATS.JC.txt', header = T, sep = '\t',stringsAsFactors = F)
+cornea_at <- read.table('rmats_analysis/Cornea_Adult.Tissue_SE_VS_body_SE/SE.MATS.JC.txt', header = T, sep = '\t',stringsAsFactors = F)
+sig_rpe_retnet <- filter(RPE_at,new_fdr<=.05)%>%filter(geneSymbol%in%ret_genes)
+sig_rpre_rpe <- filter(RPE_at,new_fdr<=.05)%>%filter(geneSymbol%in%rpe_genes)# none
+sig_cornea_retnet <-  filter(cornea_at,new_fdr<=.05)%>%filter(geneSymbol%in%ret_genes)#none
+
+findSigNovelTx <- function(gtf_final,all_events){
+    final=list()
+    list_dex=1
+    for(i in unique(all_events$geneSymbol)){
+        gtf.gene <- filter(gtf_final,gene_name==i,type=='exon')
+        gtf.gene[,c('start','end')] <- gtf.gene[,c('start','end')]-1 
+        events <- filter(all_events,geneSymbol==i)
+        exon_list <- split(gtf.gene[,c('start','end')],seq(nrow(gtf.gene)))%>%lapply(as.numeric)
+        for(event in 1:nrow(events) ){
+            k <- events[event,]
+            p <- lapply(exon_list,function(x) all.equal(x,k[,5:6]%>%as.numeric,check.names=F,tolerance=1.0e-6)%>%isTRUE)%>%unlist
+            l <- gtf.gene[p,]%>%filter(grepl('MSTR',transcript_id))
+            if(nrow(l)>0){
+                res <- list(gtf.gene[p,],k)
+                m<- data.frame(gene=i,tx =as.character(l$transcript_id)%>%paste(collapse = ','),qval=k[,'new_fdr'],k[,c("SJC_SAMPLE_1_avg","IJC_SAMPLE_1_avg","SJC_SAMPLE_2_avg","IJC_SAMPLE_2_avg")])
+                final[[list_dex]] <- m
+                list_dex <- list_dex+1
+                }   
+        }
+
+    }
+    final <- do.call(rbind,final)
+    return(final)
+}
+
+ret_signoveltx <- final
+rpe_signovelret <- findSigNovelTx(gtf_final = gtf_final ,all_events = sig_rpe_retnet)
+
+save(ret_signoveltx,rpe_signovelret,file = 'tables_for_poster.Rdata')
+
 ################################################################################
 ## part2 looking at rmats out_put
 
@@ -121,30 +212,19 @@ files <- list.files(path='rmats_analysis/', pattern = 'SE.MATS.JC.txt',recursive
 RPE_at <- read.table(files[10],header = T, sep = '\t',stringsAsFactors = F)
 RPE_cL <- read.table(files[8],header = T, sep = '\t',stringsAsFactors = F)
 RPE_scl <- read.table(files[6],header = T, sep = '\t',stringsAsFactors = F)
-source('plot_testing V5.broken.R')
+
 g='CRX'
 splice_graph(all_events = RPE_at,gtf = gtf_final,gene=g,sub_tissue = 'RPE.Adult.Tissue')
 splice_graph(all_events = RPE_scl,gtf = gtf_final,gene=g,sub_tissue = 'RPE.Stem.Cell.Line')
 splice_graph(all_events = RPE_cL,gtf = gtf_final,gene = g, sub_tissue = 'RPE.Cell.Line')
 
 #look at retina genes
-ret_genes <- read.csv('ref/RetNet_genes.csv',header = F, stringsAsFactors = FALSE)%>%select(V1)
+ret_genes <- read.csv('ref/RetNet_genes.csv',header = F, stringsAsFactors = FALSE)$V1
 ret_gene_counts <- lapply(ret_genes$V1,function(x)txi.counts_by_tissue[grepl(x,rownames(txi.counts_by_tissue)),])%>%do.call(rbind,.)
-ret_at <- read.table(files[5],header = T, sep = '\t',stringsAsFactors = F)
+ret_at <- read.table('rmats_analysis/Retina_Adult.Tissue_VS_body/SE.MATS.JC.txt',header = T, sep = '\t',stringsAsFactors = F)
 splice_graph(all_events = ret_at,gtf = gtf_final,gene = 'ZC3H14',sub_tissue = 'RetinaAdultTissue')
 
 
-#look at novel tx's
-novel_tx <- filter(txdb,grepl('MSTR',transcript_id))
-tx.counts.novel <- txi.counts[rownames(txi.counts)%in%novel_tx$transcript_id,]%>%as.data.frame()
-keep <- which(rowSums(tx.counts.novel)>1000) #~min 5 counts per sample, still keeping a lot of stuff 
-tx.counts.novel <- tx.counts.novel[keep,]
-colnames(tx.counts.novel) <-colnames(txi.counts) <-  sample_table$sample
-counts_by_tissue <- lapply(unique(sample_table$subtissue), function(x) filter(sample_table,subtissue==x)[,'sample']%>%tx.counts.novel[,.]%>%rowMeans)%>%do.call(cbind,.)%>%as.data.frame
-colnames(counts_by_tissue) <- unique(sample_table$subtissue)  
-new_rows <- filter(txdb, transcript_id%in%rownames(counts_by_tissue))%>%select(comb_name)
-rownames(counts_by_tissue) <- new_rows$comb_name
-counts_gene <-txi.counts_by_tissue[look,]
 
 files <- list.files(path='rmats_analysis/', pattern = 'SE.MATS.JC.txt',recursive = T)%>%paste0('rmats_analysis/',.)
 for(i in files){

@@ -52,10 +52,11 @@ combine_PE_SE <- function(combination,event,files,event_header){
         new_fdr <- tmp$FDR
         count_info <- lapply(countsCol,function(x)parse_count_info(tmp,x))
         final <- data.frame(tmp[,c("GeneID","geneSymbol",event_header[[event]])],bind_cols(count_info),new_pvalue,new_fdr,stringsAsFactors = F)
-        path <- paste0('rmats_analysis/',target_files)
+       
         final[final$new_pvalue==0,'new_pvalue'] <- 2.2e-16
         final[final$new_fdr==0,'new_fdr'] <- 2.2e-16
         #colnames(final) <- good_cols
+        path <- paste0('rmats_analysis/',target_files)
         dir.create(path = path)
         write.table(final,paste(path,event,sep='/'),row.names = F,col.names = T, quote = F,sep = '\t')
         #if(event=='A3SS.MATs.JC.txt') unlink(target_files,recursive = T)# after all events, remove the folders
@@ -160,12 +161,12 @@ for (i in 1:length(k)){
   i_combination <- k[[i]]
   for(j in 1:length(events)){
     i_event <- events[j]
-    try(combine_PE_SE(combination = i_combination,event = i_event,files = i_files,event_header = i_event_header),outFile = stdout())
+    try(combine_PE_SE(combination = c('RPE_Adult.Tissue','body'),event = i_event,files = 'RPE_Adult.Tissue_PE_VS_body_PE/', event_header  = i_event_header),outFile = stdout())
   }
 }# add PESE
 
 
-#generate tables with all novel events
+p#generate tables with all novel events
 t <- c('SE','RI','MXE','A5SS','A3SS')
 files <- dir('~/NIH/eyeintegration_splicing/rmats_tmp/',full.names = T)
 for(i in t){

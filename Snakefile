@@ -77,10 +77,10 @@ def subtissue_to_bam(subtissue, sample_dict):
     type=subtissue[-2:]#paired or single ended
     subtissue=subtissue[:-3]
     res=[]
-    if subtissue=='body':
-        with open(config['synth_body']) as sb:
-            res=['STARbams_realigned/'+line.strip()+'/Aligned.out.bam' for line in sb]
-        return(res)
+    # if subtissue=='body':
+    #     with open(config['synth_body']) as sb:
+    #         res=['STARbams_realigned/'+line.strip()+'/Aligned.out.bam' for line in sb]
+    #     return(res)
 
     for sample in sample_dict.keys():
         if type=='PE':
@@ -109,9 +109,9 @@ def tissue_to_bam(tissue, sample_dict):
 
 configfile:'config.yaml'
 sample_dict=readSampleFile(config['sampleFile'])# sampleID:dict{path,paired,metadata}
-subtissues_SE=["RPE_Stem.Cell.Line","RPE_Cell.Line","Retina_Adult.Tissue","RPE_Fetal.Tissue","ESC_Stem.Cell.Line","Cornea_Adult.Tissue","Cornea_Fetal.Tissue","Cornea_Cell.Line","Retina_Stem.Cell.Line",'body']
-subtissues_PE=["Retina_Adult.Tissue", "RPE_Cell.Line", "ESC_Stem.Cell.Line" , "RPE_Adult.Tissue",'body' ]# add body back in  at some point
-tissues=['Retina','RPE','ESC','Cornea','body']
+subtissues_SE=["RPE_Stem.Cell.Line","RPE_Cell.Line","Retina_Adult.Tissue","RPE_Fetal.Tissue","Cornea_Adult.Tissue","Cornea_Fetal.Tissue","Cornea_Cell.Line","Retina_Stem.Cell.Line",'body']
+subtissues_PE=["Retina_Adult.Tissue", "RPE_Cell.Line", "RPE_Adult.Tissue",'body' ]# add body back in  at some point
+tissues=['Retina','RPE','Cornea','body']
 sample_names=sample_dict.keys()
 loadSRAtk="module load {} && ".format(config['sratoolkit_version'])
 loadSalmon= "module load {} && ".format(config['salmon_version'])
@@ -224,52 +224,46 @@ rule sort_bams:
         module load samtools
         samtools sort -o {output[0]} --threads 7 {input[0]}
         '''
-rule merge_bams_for_stringtie:
-    input: lambda wildcards: tissue_to_bam(wildcards.tissue,sample_dict)
-    output:'STARbams/{tissue}.sorted.bam'
-    run:
-        bams_to_merge=str(input).strip("[|]").replace("'","").replace(',',' ') # probably a better way to do this
-        #samtools_merge='module load samtools && samtools cat {} | '.format(bams_to_merge)
-        #samgtools_sort=' samtools sort --threads 15 - > STARbams/{}.sorted.bam'.format(wildcards.tissue)
-        samtools_merge='module load samtools && samtools merge --threads 15 {} {}  '.format(output[0],bams_to_merge)
-        sp.run(samtools_merge,shell=True)
-
 rule run_stringtie:
-    input: 'STARbams/{tissue}.sorted.bam'
-    output: 'ref/{tissue}_st.gtf'
+    input: 'STARbams/{sample}/Aligned.out.bam'
+    output:'st_out/{sample}.gtf'
     shell:
         '''
         module load stringtie
-        stringtie {input[0]} -o {output[0]} -p 16 -G ref/gencodeAno_bsc.gtf
+        stringtie {input[0]} -o {output[0]} -p 4 -G ref/gencodeAno_bsc.gtf
         '''
+
 #gffread v0.9.12.Linux_x86_64/
 rule merge_gtfs_and_make_fasta:
-    #this could be split into multiple rules, but its a lot easier tostring it together
-    input: expand('ref/{tissue}_st.gtf',tissue=tissues)
-    output: 'ref/combined_final.gtf','ref/combined_stringtie_tx.fa'
+    #this could be split into multiple rules, but its a lot easier to string it together
+    input: expand('st_out/{sample}.gtf',sample=sample_names)
+    output: 'ref/stringtie_merged.gtf','ref/combined_stringtie_tx.fa', 'stringtie_merge.stats','STOP.FLAG'
     shell:
         '''
+        module load R
+        Rscript scripts/make_gtf_list.R
         module load stringtie
-        stringtie --merge -G ref/gencodeAno_bsc.gtf -o ref/comb.gtf ref/Retina_st.gtf ref/RPE_st.gtf ref/ESC_st.gtf ref/Cornea_st.gtf ref/body_st.gtf
+        stringtie --merge -G ref/gencodeAno_bsc.gtf -o {output[0]} ref/gtf_locs.txt
 
-        module load R
-        Rscript scripts/clean_gtf.R
-        module load bedtools
-        bedtools intersect -f .5  -wo -s -a missing.bed -b refgtf.bed > testout.bed
-        module load R
-        Rscript scripts/clean_gtf_part2.R
-        ./gffread/gffread -w {output[1]} -g {ref_PA} ref/combined_final.gtf
 
+        ./gffread/gffread -w {output[1]} -g {ref_PA} {output[0]}
+
+        module load gffcompare
+        gffcompare -r ref/gencodeAno_bsc.gtf -o stringtie_merge.stats -i {output[0]}
         '''
+
+
+
 
 
 '''
 ****PART 4**** rMATS
 -the rmats shell script double bracket string thing works even though it looks wrong
 -updated STAR cmd to match rmats source
+-right now we have little to no body samples that are single ended, so gotta deal wit that
 '''
 rule rebuild_star_index:
-    input: ref_PA, 'ref/combined_final.gtf'
+    input: ref_PA, 'ref/stringtie_merged.gtf'
     output:'ref/STARindex_stringtie'
     shell:
         '''

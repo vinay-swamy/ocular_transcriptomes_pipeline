@@ -49,7 +49,7 @@ num_chr <- function(seqid){
 }
 clinvar_sum$Chromosome <- num_chr(clinvar_sum$Chromosome)
 
-load('rmats_stringTie_comparison_all.Rdata')
+load('rdata/rmats_stringTie_comparison_all.Rdata')
 novel_exon_tab <- final_table
  novel_exon_tab$start <- novel_exon_tab$start-12
  novel_exon_tab$end <- novel_exon_tab$end+12

@@ -7,7 +7,7 @@ module load snakemake/5.1.3 || exit 1
 
 mkdir -p 00log
 
-sbcmd="sbatch --cpus-per-task={threads} \
+sbcmd="sbatch --cpus-per-task={cluster.cpus-per-task} \
 --mem={cluster.mem} \
 --time={cluster.time} \
 --partition={cluster.partition} \

@@ -4,6 +4,7 @@
 		"partition" : "quick",
 		"time" : "4:00:00",
 		"mem" : "8g",
+		"cpus-per-task" : "1"
 		"output"  : "00log/{rule}_{wildcards}.out",
 		"error" : "00log/{rule}_{wildcards}.err",
 		"extra" : "",
@@ -77,9 +78,9 @@
 	"run_stringtie" :
 	{
 		"partition" : "norm",
-		"cpus-per-task" : "4",
-		"time" : "04:00:00",
-		"mem" : "16G"
+		"cpus-per-task" : "8",
+		"time" : "24:00:00",
+		"mem" : "32G"
 	},
 	"merge_bams_for_stringtie" :
 	{

@@ -27,4 +27,3 @@ snakemake -s $snakefile \
 --cluster "$sbcmd"  --latency-wait 120  \
 -k --restart-times 0
 
-

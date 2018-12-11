@@ -17,6 +17,7 @@ Things to do
 import subprocess as sp
 import itertools as it
 
+
 def readSampleFile(samplefile):
     # returns a dictionary of dictionaries where first dict key is sample id and second dict key are sample  properties
     res={}
@@ -44,7 +45,7 @@ def lookupRunfromID(card,sample_dict):
 
 def genrMATsinput(subtissue,type):
     all_combs= list(it.combinations(subtissue,2))
-    res=['rmats_out/{}_VS_{}'.format(x[0]+type,x[1]+type) for x in all_combs]
+    res=['rmats_out/{}_VS_{}'.format(x[0],x[1]) for x in all_combs]
     return(res)
 
 def fastq_for_rMATS(tissue,samp_dict ,gz=True):
@@ -73,22 +74,17 @@ def all_fastqs(samp_dict):
     return(res)
 
 
-def subtissue_to_bam(subtissue, sample_dict):
-    type=subtissue[-2:]#paired or single ended
-    subtissue=subtissue[:-3]
+def subtissue_to_bam(subtissue,type ,sample_dict):
     res=[]
     # if subtissue=='body':
     #     with open(config['synth_body']) as sb:
     #         res=['STARbams_realigned/'+line.strip()+'/Aligned.out.bam' for line in sb]
     #     return(res)
-
     for sample in sample_dict.keys():
-        if type=='PE':
-            if sample_dict[sample]['subtissue']==subtissue and sample_dict[sample]['paired']:
-                res.append('STARbams_realigned/{}/Aligned.out.bam'.format(sample))
-        else:#type=='SE'
-            if sample_dict[sample]['subtissue']==subtissue and not sample_dict[sample]['paired']:
-                res.append('STARbams_realigned/{}/Aligned.out.bam'.format(sample))
+        if sample_dict[sample]['subtissue']==subtissue and sample_dict[sample]['paired']:
+            res.append('STARbams_realigned/{}/Aligned.out.bam'.format(sample))
+    #if not res:
+
     return (res)
 #does string tie look
 def tissue_to_bam(tissue, sample_dict):
@@ -109,8 +105,8 @@ def tissue_to_bam(tissue, sample_dict):
 
 configfile:'config.yaml'
 sample_dict=readSampleFile(config['sampleFile'])# sampleID:dict{path,paired,metadata}
-subtissues_SE=["RPE_Stem.Cell.Line","RPE_Cell.Line","Retina_Adult.Tissue","RPE_Fetal.Tissue","Cornea_Adult.Tissue","Cornea_Fetal.Tissue","Cornea_Cell.Line","Retina_Stem.Cell.Line",'body']
-subtissues_PE=["Retina_Adult.Tissue", "RPE_Cell.Line", "RPE_Adult.Tissue",'body' ]# add body back in  at some point
+#subtissues_SE=["RPE_Stem.Cell.Line","RPE_Cell.Line","Retina_Adult.Tissue","RPE_Fetal.Tissue","Cornea_Adult.Tissue","Cornea_Fetal.Tissue","Cornea_Cell.Line","Retina_Stem.Cell.Line",'body']
+subtissues_PE=["Retina_Adult.Tissue", "RPE_Cell.Line", "RPE_Adult.Tissue",'Cornea_Adult.Tissue','body' ]# add body back in  at some point
 tissues=['Retina','RPE','Cornea','body']
 sample_names=sample_dict.keys()
 loadSRAtk="module load {} && ".format(config['sratoolkit_version'])
@@ -128,7 +124,7 @@ ref_trimmed='ref/gencodeRef_trimmed.fa'
 fql=config['fastq_path']
 
 rule all:
-    input: genrMATsinput(subtissues_PE,'_PE'),genrMATsinput(subtissues_SE,'_SE'),expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names)
+    input: genrMATsinput(subtissues_PE,'_PE'), expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names)
     #,'smoothed_filtered_tpms.csv'
 '''
 ****PART 1**** download files
@@ -230,18 +226,18 @@ rule run_stringtie:
     shell:
         '''
         module load stringtie
-        stringtie {input[0]} -o {output[0]} -p 4 -G ref/gencodeAno_bsc.gtf
+        stringtie {input[0]} -o {output[0]} -p 8 -G ref/gencodeAno_bsc.gtf
         '''
 
 #gffread v0.9.12.Linux_x86_64/
 rule merge_gtfs_and_make_fasta:
     #this could be split into multiple rules, but its a lot easier to string it together
     input: expand('st_out/{sample}.gtf',sample=sample_names)
-    output: 'ref/stringtie_merged.gtf','ref/combined_stringtie_tx.fa', 'stringtie_merge.stats','STOP.FLAG'
+    output: 'ref/stringtie_merged.gtf','ref/combined_stringtie_tx.fa', 'stringtie_merge.stats'
     shell:
         '''
         module load R
-        Rscript scripts/make_gtf_list.R
+        Rscript scripts/make_gtf_list.R {config[sampleFile]}
         module load stringtie
         stringtie --merge -G ref/gencodeAno_bsc.gtf -o {output[0]} ref/gtf_locs.txt
 
@@ -249,9 +245,8 @@ rule merge_gtfs_and_make_fasta:
         ./gffread/gffread -w {output[1]} -g {ref_PA} {output[0]}
 
         module load gffcompare
-        gffcompare -r ref/gencodeAno_bsc.gtf -o stringtie_merge.stats -i {output[0]}
+        gffcompare -r ref/gencodeAno_bsc.gtf -o results/st_merge -i {output[0]}
         '''
-
 
 
 
@@ -260,7 +255,7 @@ rule merge_gtfs_and_make_fasta:
 ****PART 4**** rMATS
 -the rmats shell script double bracket string thing works even though it looks wrong
 -updated STAR cmd to match rmats source
--right now we have little to no body samples that are single ended, so gotta deal wit that
+-right now we have little to no body samples that are single ended, so gotta deal wit that< only running paired samples rn
 '''
 rule rebuild_star_index:
     input: ref_PA, 'ref/stringtie_merged.gtf'
@@ -291,7 +286,7 @@ rule realign_STAR:
 
 
 rule preprMats_running:# this is going to run ultiple times, but should not be a problem
-    input: lambda wildcards: subtissue_to_bam(wildcards.st,sample_dict)
+    input: lambda wildcards: subtissue_to_bam(wildcards.st,'PE',sample_dict)
     output:'ref/{st}.rmats.txt'
     shell:
         '''
@@ -301,7 +296,7 @@ rule preprMats_running:# this is going to run ultiple times, but should not be a
 
 
 rule runrMATS:
-    input: 'ref/{tissue1}.rmats.txt','ref/{tissue2}.rmats.txt','ref/STARindex_stringtie','ref/combined_final.gtf'
+    input: 'ref/{tissue1}.rmats.txt','ref/{tissue2}.rmats.txt','ref/STARindex_stringtie','ref/stringtie_merged.gtf'
              #,'ref/{tissue1}.rmats.txt','ref/{tissue2}.rmats.txt'
     output: 'rmats_out/{tissue1}_VS_{tissue2}'
     # might have to change read length to some sort of function

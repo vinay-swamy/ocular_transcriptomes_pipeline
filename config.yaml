@@ -1,5 +1,5 @@
 refFasta_url: 'ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/gencode.v28.pc_transcripts.fa.gz'
-sampleFile: 'sampleTableV2.tab'
+sampleFile: 'sampleTableV2.5.tab'
 salmon_version: 'salmon/0.11.0'
 sratoolkit_version: 'sratoolkit/2.9.2'
 refGTF_pa_url: 'ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_28/gencode.v28.primary_assembly.annotation.gtf.gz'

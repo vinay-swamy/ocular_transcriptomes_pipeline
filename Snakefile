@@ -27,50 +27,10 @@ def readSampleFile(samplefile):
             res[info[0]]={'files':info[1].split(','),'paired':True if info[2]=='y' else False, 'tissue':info[3],'subtissue':info[4]}
     return(res)
 
-def lookupRunfromID(card,sample_dict):
-    id=card
-    if '_' in id:
-        i= '1' if id[-1]=='1' else '2'# check L/R file
-        id=card[:-2]
-    fqpfiles=sample_dict[id]['files']
-    res=[]
-    for file in fqpfiles:
-        if sample_dict[id]['paired']:
-            #PE
-            res.append('fastqParts/{}_{}.fastq.gz'.format(file,i))
-        else:
-            #SE
-            res.append('fastqParts/{}.fastq.gz'.format(file))
-    return(res)
 
 def genrMATsinput(subtissue,type):
     all_combs= list(it.combinations(subtissue,2))
     res=['rmats_out/{}_VS_{}'.format(x[0],x[1]) for x in all_combs]
-    return(res)
-
-def fastq_for_rMATS(tissue,samp_dict ,gz=True):
-    # given a tissue type, return the required fastqParts
-    res=[]
-    if gz:
-        for key in samp_dict.keys():
-            if samp_dict[key]['subtissue']==tissue and samp_dict[key]['paired']:
-                res.append('{}_1.fastq.gz'.format(key))
-                res.append('{}_2.fastq.gz'.format(key))
-    else:
-        for key in samp_dict.keys():
-            if samp_dict[key]['subtissue']==tissue and samp_dict[key]['paired']:
-                res.append('tmp/{}/{}_1.fastq'.format(tissue,key))
-                res.append('tmp/{}/{}_2.fastq'.format(tissue,key))
-    return(res)
-
-def all_fastqs(samp_dict):
-    res=[]
-    for sample in samp_dict.keys():
-        if samp_dict[sample]['paired']:
-            res.append('fastq_files/{}_1.fastq.gz'.format(sample))
-            res.append('fastq_files/{}_2.fastq.gz'.format(sample))
-        else:
-            res.append('fastq_files/{}.fastq.gz'.format(sample))
     return(res)
 
 
@@ -87,19 +47,9 @@ def subtissue_to_bam(subtissue,type ,sample_dict):
 
     return (res)
 #does string tie look
-def tissue_to_bam(tissue, sample_dict):
-    res=[]
-    if tissue=='body':
-        with open(config['synth_body']) as sb:
-            res=['STARbams/'+line.strip()+'/Aligned.out.bam' for line in sb]
-        return(res)
-
-    for sample in sample_dict.keys():
-        if sample_dict[sample]['tissue']==tissue:
-            res.append('STARbams/{}/Aligned.out.bam'.format(sample))
+def tissue_to_gtf(tissue, sample_dict):
+    res=['st_out/' +sample+'.gtf' for sample in sample_dict.keys() if sample_dict[sample]['tissue']==tissue ]
     return(res)
-
-
 
 
 
@@ -111,23 +61,20 @@ tissues=['Retina','RPE','Cornea','body']
 sample_names=sample_dict.keys()
 loadSRAtk="module load {} && ".format(config['sratoolkit_version'])
 loadSalmon= "module load {} && ".format(config['salmon_version'])
-salmonindex='ref/salmonindex'
-salmonindex_trimmed='ref/salmonindex_trimmed'
+
 STARindex='ref/STARindex'
 ref_fasta='ref/gencodeRef.fa'
 ref_GTF='ref/gencodeAno.gtf'
 ref_GTF_basic='ref/gencodeAno_bsc.gtf'
-ref_GTF_PA='ref/gencodeAno_pa.gtf'
 ref_PA='ref/gencodePA.fa'
-badruns='badruns'
-ref_trimmed='ref/gencodeRef_trimmed.fa'
 fql=config['fastq_path']
+stringtie_full_gtf='ref/all_tissues.combined.gtf'
 
 rule all:
     input: genrMATsinput(subtissues_PE,'_PE'), expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names)
     #,'smoothed_filtered_tpms.csv'
 '''
-****PART 1**** download files
+****PART 1**** download files and align to genome
 -still need to add missing fastq files
 -gffread needs indexed fasta
 -need to add versioning of tools to yaml
@@ -150,38 +97,6 @@ rule downloadGencode:
 
         '''
 
-rule getFQP:
-    output: temp(fql+'fastqParts/{id}.fastq.gz')
-    run:
-        id=wildcards.id
-        id=id[:-2] if '_'in id else id #idididid
-        try:
-            sp.check_output(loadSRAtk + 'fastq-dump --gzip --split-3 -O fastqParts {}'.format(id),shell=True)
-        except sp.CalledProcessError:
-            with open('logs/{}.fqp'.format(wildcards.id)) as l:
-                l.write('{} did not download'.format(wildcards.id))
-
-rule aggFastqsPE:
-    input:lambda wildcards:lookupRunfromID(wildcards.sampleID,sample_dict)
-    output:fql+'fastq_files/{sampleID}.fastq.gz'
-    run:
-        #this can use some cleaning up
-        id=wildcards.sampleID
-        fileParts=lookupRunfromID(id,sample_dict)
-        i='1' if '_' in id and id[-1]=='1' else '2'# which strand
-        id=id[:-2] if '_' in id else id
-        for fqp in fileParts:
-            if sample_dict[id]['paired']:
-                sp.run('cat {fqp} >> fastq_files/{id}_{i}.fastq.gz '.format(fqp=fqp,i=i,id=id),shell=True)
-            else:
-                sp.run('cat {fqp} >> fastq_files/{id}.fastq.gz'.format(fqp=fqp,id=id),shell=True)
-'''
-****PART 2**** Align with STAR and build Transcriptome
--Reminder that STAT makes the bam even if the alignment fails
--consider removing transcripts w/ only one exon from gtf
-
-
-'''
 
 rule build_STARindex:
     input: ref_PA, ref_GTF_basic
@@ -220,6 +135,19 @@ rule sort_bams:
         module load samtools
         samtools sort -o {output[0]} --threads 7 {input[0]}
         '''
+'''
+****PART 2**** Align with STAR and build Transcriptome
+-Reminder that STAR makes the bam even if the alignment fails
+-following CHESS paper - run each bam individually through stringtie, then merge to a tissue level, then merge into 1
+ use gffcompare at each meerge step;
+-12/13/18
+    - tried GFFcompare on all samples first gave 300k tx's but salmon couldn't map to them, so will now use
+      stringtie merge on a per tissue level, which will cut out a lot of transcripts, then merge with gffcompare.
+    - moved gffread > tx into its own rule
+
+'''
+
+
 rule run_stringtie:
     input: 'STARbams/{sample}/Aligned.out.bam'
     output:'st_out/{sample}.gtf'
@@ -230,26 +158,32 @@ rule run_stringtie:
         '''
 
 #gffread v0.9.12.Linux_x86_64/
-rule merge_gtfs_and_make_fasta:
-    #this could be split into multiple rules, but its a lot easier to string it together
-    input: expand('st_out/{sample}.gtf',sample=sample_names)
-    output: 'ref/stringtie_merged.gtf','ref/combined_stringtie_tx.fa', 'stringtie_merge.stats'
+
+rule merge_gtfs_by_tissue:
+    input: lambda wildcards: tissue_to_gtf(wildcards.tissue, sample_dict)
+    output: 'ref/{tissue}_st.gtf'
     shell:
         '''
-        module load R
-        Rscript scripts/make_gtf_list.R {config[sampleFile]}
+        pattern={wildcards.tissue}
+        awk -v pattern="$pattern" '$4==pattern' sampleTableV2.5.tab | cut -f1 | awk '$0="st_out/"$0".gtf"' -  > ref/{wildcards.tissue}_gtf.loc
         module load stringtie
-        stringtie --merge -G ref/gencodeAno_bsc.gtf -o {output[0]} ref/gtf_locs.txt
-
-
-        ./gffread/gffread -w {output[1]} -g {ref_PA} {output[0]}
-
-        module load gffcompare
-        gffcompare -r ref/gencodeAno_bsc.gtf -o results/st_merge -i {output[0]}
+        stringtie --merge -G ref/gencodeAno_bsc.gtf -o {output[0]} {input}
+        '''
+rule merge_tissue_gtfs:
+    input: expand('ref/{tissue}_st.gtf',tissue=tissues)
+    output: stringtie_full_gtf
+    shell:
+        '''
+        gffcompare -r ref/gencodeAno_bsc.gtf -o ref/all_tissues {input}
         '''
 
-
-
+rule make_tx_fasta:
+    input: stringtie_full_gtf
+    output: 'ref/combined_stringtie_tx.fa'
+    shell:
+        '''
+        ./gffread/gffread -w {output[0]} -g {ref_PA} {input[0]}
+        '''
 
 '''
 ****PART 4**** rMATS
@@ -258,7 +192,7 @@ rule merge_gtfs_and_make_fasta:
 -right now we have little to no body samples that are single ended, so gotta deal wit that< only running paired samples rn
 '''
 rule rebuild_star_index:
-    input: ref_PA, 'ref/stringtie_merged.gtf'
+    input: ref_PA, stringtie_full_gtf
     output:'ref/STARindex_stringtie'
     shell:
         '''
@@ -296,7 +230,7 @@ rule preprMats_running:# this is going to run ultiple times, but should not be a
 
 
 rule runrMATS:
-    input: 'ref/{tissue1}.rmats.txt','ref/{tissue2}.rmats.txt','ref/STARindex_stringtie','ref/stringtie_merged.gtf'
+    input: 'ref/{tissue1}.rmats.txt','ref/{tissue2}.rmats.txt','ref/STARindex_stringtie',stringtie_full_gtf
              #,'ref/{tissue1}.rmats.txt','ref/{tissue2}.rmats.txt'
     output: 'rmats_out/{tissue1}_VS_{tissue2}'
     # might have to change read length to some sort of function
@@ -330,25 +264,12 @@ rule run_salmon:
     input: lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
         'ref/salmonindex_st'
     output: 'quant_files/{sampleID}/quant.sf'
-    log: 'logs/{sampleID}.log'
     run:
         id=wildcards.sampleID
         #tissue=wildcards.tissue
         paired=sample_dict[id]['paired']
         if paired:
-            salmon_command=loadSalmon + 'salmon quant -i {} -l A --gcBias --seqBias  -1 {} -2 {} -o {}'.format(input[2],input[0],input[1],'quant_files/{}'.format(id))
+            salmon_command=loadSalmon + 'salmon quant -p 4 -i {} -l A --gcBias --seqBias  -1 {} -2 {} -o {}'.format(input[2],input[0],input[1],'quant_files/{}'.format(id))
         else:
-            salmon_command=loadSalmon + 'salmon quant -i {} -l A --gcBias --seqBias -r {} -o {}'.format(input[1],input[0],'quant_files/{}'.format(id))
+            salmon_command=loadSalmon + 'salmon quant -p 4 -i {} -l A --gcBias --seqBias -r {} -o {}'.format(input[1],input[0],'quant_files/{}'.format(id))
         sp.run(salmon_command,shell=True)
-        log1='logs/{}.log'.format(id)
-        salmon_info='quant_files/{}/aux_info/meta_info.json'.format(id)
-        if os.path.exists(salmon_info):
-            with open(salmon_info) as file:
-                salmonLog=json.load(file)
-                mappingscore=salmonLog["percent_mapped"]
-            if mappingscore <= 50:
-                with open(log1,'w+') as logFile:
-                    logFile.write('Sample {} failed QC mapping Percentage: {}'.format(id,mappingscore))
-        else:
-            with open(log1,'w+') as logFile:
-                logFile.write('Sample {} failed to align'.format(id))

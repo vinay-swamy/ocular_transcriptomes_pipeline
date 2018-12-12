@@ -3,7 +3,7 @@
 	{
 		"partition" : "quick",
 		"time" : "4:00:00",
-		"mem" : "8g",
+		"mem" : "16g",
 		"cpus-per-task" : "1",
 		"output"  : "00log/{rule}_{wildcards}.out",
 		"error" : "00log/{rule}_{wildcards}.err",
@@ -52,7 +52,7 @@
                 "extra" : ""
 
 	},
-	"merge_gtfs_and_make_fasta":
+	"merge_gtfs_by_tissue":
 	{
 		"mem" : "48g"
 	},
@@ -96,7 +96,7 @@
 	{
                 "partition" : "norm",
                 "cpus-per-task" : "4",
-                "time" : "48:00:00",
+                "time" : "4:00:00",
                 "mem" : "16g",
                 "output"  : "00log/{rule}_{wildcards}.out",
                 "error" : "00log/{rule}_{wildcards}.err",

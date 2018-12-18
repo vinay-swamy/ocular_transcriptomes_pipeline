@@ -97,7 +97,7 @@
                 "partition" : "norm",
                 "cpus-per-task" : "4",
                 "time" : "4:00:00",
-                "mem" : "16g",
+                "mem" : "32g",
                 "output"  : "00log/{rule}_{wildcards}.out",
                 "error" : "00log/{rule}_{wildcards}.err",
                 "extra" : ""

@@ -144,6 +144,8 @@ rule sort_bams:
     - tried GFFcompare on all samples first gave 300k tx's but salmon couldn't map to them, so will now use
       stringtie merge on a per tissue level, which will cut out a lot of transcripts, then merge with gffcompare.
     - moved gffread > tx into its own rule
+-12/14/18
+    -st-merge at at it default tpm cut off did nothing, so now going to do what chess ppl did and filter it at 1tpm per tissue
 
 '''
 
@@ -165,15 +167,17 @@ rule merge_gtfs_by_tissue:
     shell:
         '''
         pattern={wildcards.tissue}
-        awk -v pattern="$pattern" '$4==pattern' sampleTableV2.5.tab | cut -f1 | awk '$0="st_out/"$0".gtf"' -  > ref/{wildcards.tissue}_gtf.loc
-        module load stringtie
-        stringtie --merge -G ref/gencodeAno_bsc.gtf -o {output[0]} {input}
+        num=$(awk -v pattern="$pattern" '$4==pattern' sampleTableV2.5.tab | wc -l)
+        k=3
+	module load stringtie
+        stringtie --merge -G ref/gencodeAno_bsc.gtf -F $((num/k)) -T $((num/k)) -o {output[0]} {input}
         '''
 rule merge_tissue_gtfs:
     input: expand('ref/{tissue}_st.gtf',tissue=tissues)
     output: stringtie_full_gtf
     shell:
         '''
+        module load gffcompare
         gffcompare -r ref/gencodeAno_bsc.gtf -o ref/all_tissues {input}
         '''
 

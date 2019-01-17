@@ -1,12 +1,12 @@
-setwd('~/NIH/eyeintegration_splicing/')
+setwd('/data/swamyvs/eyeintegration_splicing')
 library(tidyverse)
 library(IRanges)
 library(parallel)
-args= commandArgs()
-gtf_file=args[1]
-cds_file=args[2]
-cores=args[4]
-outfile=args[3]
+#args= commandArgs()
+gtf_file='all_tissues.combined.gtf'
+cds_file='combined_stringtie_tx.fa.transdecoder.gff3'
+cores=12
+outfile='stringtie_alltissues.gff3'
 gtf <- rtracklayer::readGFF(gtf_file)
 td_cds <- rtracklayer::readGFF(cds_file) %>% as.data.frame()
 
@@ -21,7 +21,7 @@ scale_tx_length <- function(gtf){
         gtf[i,'scaled_end'] <- gtf[i,'end']-start + offset
         offset <- gtf[i,'scaled_end']
     }
-    return(gtf %>% mutate(scaled_length= scaled_end-scaled_start))    
+    return(gtf %>% mutate(scaled_length= scaled_end-scaled_start))
 }
 
 get_cds_genomic_coords <- function(t_tx,cds_loc){
@@ -29,17 +29,17 @@ get_cds_genomic_coords <- function(t_tx,cds_loc){
     cds_rang<- IRanges(start = cds_loc, end = cds_loc)
     hit <- IRanges::findOverlaps(query = cds_rang,subject = tx_rang)
     idx <-  subjectHits(hit)
-    return(idx)
-    
+    return(idx[1])
+
 }
 
 merge_gtf_cds <- function(tx,gtf,td_cds){
-    a=Sys.time()
+    #a=Sys.time()
     t_tx <- filter(gtf, transcript_id==tx) %>% mutate(ID=NA,parent=NA, start=start-1,length=end-start )
-    tx_line <- t_tx[1,] %>% mutate(type='mRNA',scaled_start=NA,scaled_end=NA, scaled_length=NA, 
+    tx_line <- t_tx[1,] %>% mutate(type='mRNA',scaled_start=NA,scaled_end=NA, scaled_length=NA,
                                    ID=tx, parent = NA)
     t_tx <- t_tx[-1,] %>% mutate(ID=paste(tx,'exon',exon_number,sep = '_'), parent=tx)
-    td_cds_tx <- filter(td_cds,seqid==tx,type=='gene') %>% mutate(start=start-1,length=end-start) 
+    td_cds_tx <- filter(td_cds,seqid==tx,type=='gene') %>% mutate(start=start-1,length=end-start)
     td_cds_tx$length
     if(sum(t_tx$length) != td_cds_tx$length[1]) return('spliced tx does not match cds ')
     cds <- filter(td_cds,seqid==tx,type=='CDS')
@@ -56,36 +56,54 @@ merge_gtf_cds <- function(tx,gtf,td_cds){
     TES <- cds_df[n,'start'] + (cds_end- cds_df[n,'scaled_start'])
     cds_df[n,'end'] <- TES
     fputr <- t_tx[1:start_idx,] %>% mutate(type='five_prime_UTR',ID=paste(tx,'5putr',exon_number,sep = '_'),
-                                            parent=tx)
+                                           parent=tx)
     k=nrow(fputr)
     fputr[k,'end'] <- TSS
-    tputr <- t_tx[end_idx:nrow(t_tx),] %>% mutate(type ='three_prime_UTR',ID=paste(tx,'3putr',exon_number,sep = '_'), 
+    tputr <- t_tx[end_idx:nrow(t_tx),] %>% mutate(type ='three_prime_UTR',ID=paste(tx,'3putr',exon_number,sep = '_'),
                                                   parent=tx)
     tputr[1,'start'] <-TES
     res <-rbind(tx_line,t_tx,fputr,cds_df,tputr) %>%
-        mutate(length=end-start, gene_id= .[1,'gene_id'], gene_name= .[1,'gene_name'], oId=.[1,'oId'], 
+        mutate(length=end-start, gene_id= .[1,'gene_id'], gene_name= .[1,'gene_name'], oId=.[1,'oId'],
                cmp_ref= .[1,'cmp_ref']) %>%
         dplyr::select(-c('class_code','tss_id','contained_in','cmp_ref_gene','scaled_start','scaled_end','scaled_length'))
-    b=Sys.time()
-    print(b-a)
+    # b=Sys.time()
+    # print(b-a)
     return(res)
 }
 
+wrapper = function(x,gtf,td_cds){
+    out = tryCatch(
+        {
+            merge_gtf_cds(tx = x,gtf = gtf ,td_cds = td_cds)
+        },
+        error=function(cond)
+        {
+            message(paste('error',x))
+            return(NA)
+        },
+        warning=function(cond)
+        {
+            message(paste('warning',x))
+            return(NULL)
+        },
+        finally={}
+    )
+}
+
 write_gff3 <- function(df, file){
-    to_write <- lapply(colnames(df[9:ncol(df)]), function(x) pull(df,x) %>% paste(x,., sep = '=')) %>% 
+    to_write <- lapply(colnames(df[9:ncol(df)]), function(x) pull(df,x) %>% paste(x,., sep = '=')) %>%
         do.call(cbind,.) %>% split(.,1:nrow(df)) %>%lapply( function(x) grep('=NA',x,invert = T) %>% x[.]) %>%
-        sapply( function(x) paste(x,collapse = ';')) 
+        sapply( function(x) paste(x,collapse = ';'))
     res <- cbind(df[,1:8],to_write,stringsAsFactors=F)
     res[is.na(res)] <- '.'
     write('##gff-version 3',file = file)
     write_tsv(res,file, append = T)
 }
 
-tx_list <- pull(td_cds,seqid) %>% unique
-fin <- mclapply(tx_list[1:10],function(x) merge_gtf_cds(tx = x,gtf = gtf ,td_cds = td_cds), mc.cores = cores) %>% 
+tx_list <- pull(td_cds,seqid) %>% unique %>% as.character()
+print(length(tx_list))
+fin <- mclapply(tx_list,function(x) wrapper(x = x,gtf = gtf ,td_cds = td_cds), mc.cores = cores) %>%
     do.call(rbind,.) %>% dplyr::select(-c('transcript_id','gene_id','gene_name','oId','cmp_ref','exon_number'),
-                          c('transcript_id', 'gene_id','gene_name','oId','cmp_ref','exon_number'))
+                                       c('transcript_id', 'gene_id','gene_name','oId','cmp_ref','exon_number'))
 
 write_gff3(df = fin,file = outfile)
-
-

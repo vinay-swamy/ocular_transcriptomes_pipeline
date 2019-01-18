@@ -69,8 +69,9 @@ fql=config['fastq_path']
 stringtie_full_gtf='results/all_tissues.combined.gtf'
 
 rule all:
-    input:expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
-     'results/combined_stringtie_tx.fa.transdecoder.pep',expand('rmats_out/{tissue}', tissue=subtissues)
+    input:#expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
+     'results/stringtie_alltissues_cds.gff3',\
+     expand('rmats_clean/{sub_tissue}/bin.{event}.MATS.JC.txt',sub_tissue=subtissues,event=['SE','RI','MXE','A5SS','A3SS'])
 
 '''
 ****PART 1**** download files and align to genome
@@ -189,14 +190,24 @@ rule make_tx_fasta:
 
 rule run_trans_decoder:
     input:'results/combined_stringtie_tx.fa'
-    output:'results/combined_stringtie_tx.fa.transdecoder.pep'
+    output:'results/combined_stringtie_tx.fa.transdecoder.gff3'
     shell:
         '''
         cd ref
         module load TransDecoder
-        TransDecoder.LongOrfs -t {input}
+        TransDecoder.LongOrfs -t ../{input}
         TransDecoder.Predict --single_best_only -t ../{input}
-        mv combined_stringtie_tx.fa.*  results/ || true
+        mv combined_stringtie_tx.fa.*  results/
+        '''
+rule gtf_to_gff3:
+    input:cds='results/combined_stringtie_tx.fa.transdecoder.gff3',
+        gtf=stringtie_full_gtf
+    params:cores='12'
+    output: 'results/stringtie_alltissues_cds.gff3'
+    shell:
+        '''
+        module load R
+        Rscript scripts/clean_cds_gff3.R {input.gtf} {input.cds} {output} {params.cores}
         '''
 
 '''
@@ -255,6 +266,20 @@ rule runrMATS:
         module load rmats
         rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired --readLength 130 --gtf {input[2]} --bi {input[1]} --od {output[0]}
         '''
+rule process_rmats_output:
+    input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
+    params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
+    output:'rmats_clean/{sub_tissue}/raw.{event}.MATS.JC.txt',\
+    'rmats_clean/{sub_tissue}/bin.{event}.MATS.JC.txt',\
+    'rmats_clean/{sub_tissue}/multi.{event}.MATS.JC.txt'
+    shell:
+        '''
+        module load R
+        Rscript scripts/process_rmats_output.R {input} {params.event} {output}
+        '''
+
+
+
 '''
 PART 5 - quantify new transcripts
 '''

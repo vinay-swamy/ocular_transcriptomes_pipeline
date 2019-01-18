@@ -2,11 +2,11 @@ setwd('/data/swamyvs/eyeintegration_splicing')
 library(tidyverse)
 library(IRanges)
 library(parallel)
-#args= commandArgs()
-gtf_file='all_tissues.combined.gtf'
-cds_file='combined_stringtie_tx.fa.transdecoder.gff3'
-cores=12
-outfile='stringtie_alltissues.gff3'
+args= commandArgs()
+gtf_file=args[1]
+cds_file=args[2]
+outfile=args[3]
+cores=args[4]
 gtf <- rtracklayer::readGFF(gtf_file)
 td_cds <- rtracklayer::readGFF(cds_file) %>% as.data.frame()
 

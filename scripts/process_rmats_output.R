@@ -7,10 +7,13 @@ library(tidyverse)
 args= commandArgs( trailingOnly = T)
 file= args[1]
 event= args[2]
-outfile_raw <-args[3]
-outfile_bin <- args[4]
-outfile_multi <- args[5]
-process_rmats_output <- function(file,event,outfile_raw,outfile_bin,outfile_multi){
+sample_file <- args[3]
+tissue <- args[4]
+outfile_wide <- args[5]
+outfile_raw <-args[6]
+outfile_bin <- args[7]
+outfile_multi <- args[8]
+process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_raw,outfile_bin,outfile_multi){
     event_header <- list(SE.MATS.JC.txt=c('chr'	,'strand',	'exonStart_0base',	'exonEnd',	'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
                            RI.MATS.JC.txt=c('chr'	,'strand',	'riExonStart_0base',	'riExonEnd'	,'upstreamES'	,'upstreamEE'	,'downstreamES'	,'downstreamEE'),
                            MXE.MATS.JC.txt=c('chr',	'strand',	'1stExonStart_0base',	'1stExonEnd',	'2ndExonStart_0base',	'2ndExonEnd'	,'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
@@ -36,7 +39,23 @@ process_rmats_output <- function(file,event,outfile_raw,outfile_bin,outfile_mult
         colnames(final) <- paste(col,c('avg','med','sd'),sep = '_')
         return(final)
     }
+    
+    make_wide_table <- function(df,col, t_tissue){
+        t_col <- pull(df,col)
+        wide_df <- lapply(t_col, function(x) strsplit(x,',')%>%unlist%>%as.numeric) %>% 
+            do.call(rbind,.) %>% as.data.frame
+        if(grepl('2',col)){
+            colnames(wide_df) <- filter(samp_tab, tissue=='synth',paired=='y') %>% pull (sample) %>% paste(col,sep='_')
+            return(wide_df)
+        }
+        colnames(wide_df) <- filter(samp_tab, tissue==t_tissue) %>% pull (sample) %>% paste(col,sep='_')
+        wide_df
+        
+    }
+    
     target_event <- read_tsv(file = file)
+    sample_table <- read_tsv(file = sample_file, col_names = c('sample','run','paired','tissue','subtissue','origin'))
+    
     if( nrow(target_event)==0){
       print('empty event file')
       k=colnames(target_event)
@@ -45,8 +64,14 @@ process_rmats_output <- function(file,event,outfile_raw,outfile_bin,outfile_mult
       writeLines(k, outfile_multi, sep='\t')
       return(0)
     }
-
+    
+    counts_long <- lapply(c('IJC_SAMPLE_1','IJC_SAMPLE_2'),function(x) make_wide_table(target_event,x,tissue)) %>% 
+         c(target_event[,event_header[[event]]],.) %>% do.call(cbind,.)
     countsCol<-c('IJC_SAMPLE_1','SJC_SAMPLE_1','IJC_SAMPLE_2','SJC_SAMPLE_2',"IncLevel1","IncLevel2")
+    wide_tab <- make_wide_table(target_event,'IJC_SAMPLE_2',tissue)
+    write_tsv(wide_tab,outfile_wide)s
+    
+    
     procd_cols <- lapply(countsCol,function(x)parse_count_info(target_event,x)) %>%do.call(cbind,.)
     pvals <- mutate(target_event, PValue=replace(PValue, PValue==0,2.2e-16), FDR=replace(FDR,FDR==0,2.2e-16)) %>%
         select(PValue, FDR)
@@ -69,6 +94,8 @@ process_rmats_output <- function(file,event,outfile_raw,outfile_bin,outfile_mult
 
 process_rmats_output(file = file,
                      event = event,
+                     sample_file = sample_file,
+                     outfile_wide = outfile_wide,
                      outfile_raw = outfile_raw,
                      outfile_bin = outfile_bin,
                      outfile_multi = outfile_multi)

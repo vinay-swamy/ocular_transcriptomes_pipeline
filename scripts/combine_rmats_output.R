@@ -1,12 +1,13 @@
-setwd('~/NIH/eyeintegration_splicing/')
+#setwd('~/NIH/eyeintegration_splicing/')
 library(tidyverse)
-'
+setwd('/data/swamyvs/eyeintegration_splicing')
+k <- '
 an exon can be involved in 2 seperate events across different tissues 
 ie cn be binary in tissue a and in b  but are2 didffernt events; right now will remvoe and examine later
 make a wide table with all counts
 
 '
-args <-c('SE.MATS.JC.txt','test_inc.tsv','test_med.tsv')
+#args <-c('SE.MATS.JC.txt','test_inc.tsv','test_med.tsv')
 args <- commandArgs()
 event=args[1]
 outfile_inclvl=args[2]
@@ -57,7 +58,14 @@ combine_allTissues <- function(event, outfile_inclvl,outfile_medcts){
     
     full_tab_incLevel <- make_full_table(df_l = event_df_list,col ="IncLevel1_avg",exon_df = synthcol_distinct )
     full_tab_med_counts <- make_full_table(df_l = event_df_list,col ="IJC_SAMPLE_1_med",exon_df = synthcol_distinct )
-   
+    # make_full_wide_table <- function(){
+    # files1 <- list.files('rmats_clean', pattern = paste0('wide.', event), recursive = T, full.names = T)
+    # wide_df_list <- lapply(files1,function(x)suppressMessages(read_tsv(x)))
+    # 
+    # synthcol_wide <- lapply(wide_df_list, function(x) select(x, which(colnames(x)%in%event_header[[event]] | grepl('_2',colnames(x))))) %>%
+    #     do.call(rbind,.)
+    # 
+    # }
     write_tsv(full_tab_incLevel,  outfile_inclvl)
     write_tsv(full_tab_med_counts, outfile_medcts)
 }

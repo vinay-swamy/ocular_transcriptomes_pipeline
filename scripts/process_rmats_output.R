@@ -40,7 +40,7 @@ process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_r
         return(final)
     }
     
-    make_wide_table <- function(df,col, t_tissue){
+    make_wide_table <- function(df,col,samp_tab, t_tissue){
         t_col <- pull(df,col)
         wide_df <- lapply(t_col, function(x) strsplit(x,',')%>%unlist%>%as.numeric) %>% 
             do.call(rbind,.) %>% as.data.frame
@@ -59,17 +59,17 @@ process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_r
     if( nrow(target_event)==0){
       print('empty event file')
       k=colnames(target_event)
+      writeLines(k, outfile_wide, sep='\t')
       writeLines(k, outfile_raw, sep='\t')
       writeLines(k, outfile_bin, sep='\t')
       writeLines(k, outfile_multi, sep='\t')
       return(0)
     }
     
-    counts_long <- lapply(c('IJC_SAMPLE_1','IJC_SAMPLE_2'),function(x) make_wide_table(target_event,x,tissue)) %>% 
+    counts_long <- lapply(c('IJC_SAMPLE_1','IJC_SAMPLE_2'),function(x) make_wide_table(target_event,x,sample_table,tissue)) %>% 
          c(target_event[,event_header[[event]]],.) %>% do.call(cbind,.)
     countsCol<-c('IJC_SAMPLE_1','SJC_SAMPLE_1','IJC_SAMPLE_2','SJC_SAMPLE_2',"IncLevel1","IncLevel2")
-    wide_tab <- make_wide_table(target_event,'IJC_SAMPLE_2',tissue)
-    write_tsv(wide_tab,outfile_wide)s
+    write_tsv(counts_long,outfile_wide)
     
     
     procd_cols <- lapply(countsCol,function(x)parse_count_info(target_event,x)) %>%do.call(cbind,.)

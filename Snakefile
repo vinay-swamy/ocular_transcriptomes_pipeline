@@ -71,7 +71,7 @@ stringtie_full_gtf='results/all_tissues.combined.gtf'
 rule all:
     input:#expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
      'results/stringtie_alltissues_cds.gff3',\
-     expand('rmats_clean/{sub_tissue}/bin.{event}.MATS.JC.txt',sub_tissue=subtissues,event=['SE','RI','MXE','A5SS','A3SS'])
+     expand('results/all_tissues.{event}.incLevel.txt', event=['SE','RI','MXE','A5SS','A3SS'])
 
 '''
 ****PART 1**** download files and align to genome
@@ -197,7 +197,7 @@ rule run_trans_decoder:
         module load TransDecoder
         TransDecoder.LongOrfs -t ../{input}
         TransDecoder.Predict --single_best_only -t ../{input}
-        mv combined_stringtie_tx.fa.*  results/
+        mv combined_stringtie_tx.fa.*  ../results/
         '''
 rule gtf_to_gff3:
     input:cds='results/combined_stringtie_tx.fa.transdecoder.gff3',
@@ -269,15 +269,23 @@ rule runrMATS:
 rule process_rmats_output:
     input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-    output:'rmats_clean/{sub_tissue}/raw.{event}.MATS.JC.txt',\
+    output:'rmats_clean/{sub_tissue}/wide.{event}.MATS.JC.txt',\
+    'rmats_clean/{sub_tissue}/raw.{event}.MATS.JC.txt',\
     'rmats_clean/{sub_tissue}/bin.{event}.MATS.JC.txt',\
     'rmats_clean/{sub_tissue}/multi.{event}.MATS.JC.txt'
     shell:
         '''
         module load R
-        Rscript scripts/process_rmats_output.R {input} {params.event} {output}
+        Rscript scripts/process_rmats_output.R {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
         '''
-
+rule combined_rmats_output:
+    input: expand('rmats_clean/{sub_tissue}/bin.{{event}}.MATS.JC.txt', sub_tissue=subtissues)
+    output:'results/all_tissues.{event}.incLevel.txt','results/all_tissues.{event}.medCounts.txt'
+    shell:
+        '''
+        module load R
+        Rscript scripts/combine_rmats_output.R {wildcards.event} {output}
+        '''
 
 
 '''

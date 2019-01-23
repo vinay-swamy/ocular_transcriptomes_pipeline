@@ -48,7 +48,7 @@ process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_r
             colnames(wide_df) <- filter(samp_tab, tissue=='synth',paired=='y') %>% pull (sample) %>% paste(col,sep='_')
             return(wide_df)
         }
-        colnames(wide_df) <- filter(samp_tab, tissue==t_tissue) %>% pull (sample) %>% paste(col,sep='_')
+        colnames(wide_df) <- filter(samp_tab, tissue==t_tissue,paired=='y') %>% pull (sample) %>% paste(col,sep='_')
         wide_df
         
     }

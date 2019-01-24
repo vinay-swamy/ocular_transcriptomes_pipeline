@@ -2,11 +2,13 @@ setwd('/data/swamyvs/eyeintegration_splicing')
 library(tidyverse)
 library(IRanges)
 library(parallel)
-args= commandArgs()
+args= commandArgs(trailingOnly = T)
 gtf_file=args[1]
 cds_file=args[2]
 outfile=args[3]
 cores=args[4]
+print(gtf_file)
+print(cds_file)
 gtf <- rtracklayer::readGFF(gtf_file)
 td_cds <- rtracklayer::readGFF(cds_file) %>% as.data.frame()
 
@@ -71,7 +73,7 @@ merge_gtf_cds <- function(tx,gtf,td_cds){
     return(res)
 }
 
-wrapper = function(x,gtf,td_cds){
+wrapper <- function(x,gtf,td_cds){
     out = tryCatch(
         {
             merge_gtf_cds(tx = x,gtf = gtf ,td_cds = td_cds)

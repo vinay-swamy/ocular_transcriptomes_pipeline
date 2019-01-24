@@ -71,7 +71,7 @@ stringtie_full_gtf='results/all_tissues.combined.gtf'
 rule all:
     input:#expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
      'results/stringtie_alltissues_cds.gff3',\
-     expand('results/all_tissues.{event}.incLevel.txt', event=['SE','RI','MXE','A5SS','A3SS'])
+     expand('results/all_tissues.{event}.incLevel.tsv', event=['SE','RI','MXE','A5SS','A3SS'])
 
 '''
 ****PART 1**** download files and align to genome
@@ -143,6 +143,9 @@ rule sort_bams:
     - moved gffread > tx into its own rule
 -12/14/18
     -st-merge at at it default tpm cut off did nothing, so now going to do what chess ppl did and filter it at 1tpm per tissue
+-01/22/19
+    - use gffcompare gtf not stringtie-merge gtf because gffcompare is significantly better than stringtie at mapping
+    back to genes. GFFcompare found 20K novel tx vs 18K on st-merge, with the same number of transcript.
 
 '''
 
@@ -171,13 +174,16 @@ rule merge_gtfs_by_tissue:
         '''
 rule merge_tissue_gtfs:
     input: expand('ref/tissue_gtfs/{tissue}_st.gtf',tissue=eye_tissues)
-    output: stringtie_full_gtf
+    output: stringtie_full_gtf, 'results/all_tissues.stringtie_merge.gtf'
     shell:
         '''
+        module load stringtie
+        stringtie --merge -G ref/gencodeAno_bsc.gtf  -o {output[1]} {input}
+
         mkdir -p ref/gffread_dir
         module load gffcompare
         gffcompare -r ref/gencodeAno_bsc.gtf -o ref/gffread_dir/all_tissues {input}
-        mv ref/gffread_dir/all_tissues.combined.gtf {output}
+        mv ref/gffread_dir/all_tissues.combined.gtf {output[0]}
         '''
 
 rule make_tx_fasta:
@@ -280,11 +286,12 @@ rule process_rmats_output:
         '''
 rule combined_rmats_output:
     input: expand('rmats_clean/{sub_tissue}/bin.{{event}}.MATS.JC.txt', sub_tissue=subtissues)
-    output:'results/all_tissues.{event}.incLevel.txt','results/all_tissues.{event}.medCounts.txt'
+    params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
+    output:'results/all_tissues.{event}.incLevel.tsv','results/all_tissues.{event}.medCounts.tsv'
     shell:
         '''
         module load R
-        Rscript scripts/combine_rmats_output.R {wildcards.event} {output}
+        Rscript scripts/combine_rmats_output.R {params.event} {output}
         '''
 
 

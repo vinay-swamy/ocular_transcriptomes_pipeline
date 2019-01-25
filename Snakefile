@@ -47,19 +47,27 @@ def salmon_input(id,sample_dict,fql):
         return('-r {}.fastq.gz'.format(id))
 
 #configfile:'config.yaml'
+#sample information
 sample_file=config['sampleFile']
 sample_dict=readSampleFile(config['sampleFile'])# sampleID:dict{path,paired,metadata}
-tissues=['Adipose.Tissue','Adrenal.Gland','Blood','Blood.Vessel','Brain','Breast','Colon', 'Cornea','Esophagus','Heart',\
-'Kidney','Lens','Liver','Lung','Muscle','Nerve','Pancreas','Pituitary','Retina','RPE','Salivary.Gland','Skin','Small.Intestine',\
-'Spleen','Stomach','Thyroid','synth']
-subtissues=['Adipose.Tissue','Adrenal.Gland','Blood','Blood.Vessel','Brain','Breast','Colon', 'Cornea_Adult.Tissue','Esophagus','Heart',\
-'Kidney','Lens_Stem.Cell.Line','Liver','Lung','Muscle','Nerve','Pancreas','Pituitary','Retina_Adult.Tissue','RPE_Adult.Tissue','Salivary.Gland','Skin','Small.Intestine',\
-'Spleen','Stomach','Thyroid','synth']
-eye_tissues=['Retina','RPE','Cornea','Lens','synth']
+tissue_file=config['tissueFile']
+subtissue_file=config['subtissueFile']
+with open(tissue_file) as tf, open(subtissue_file) as sf:
+    tissues= [line.strip('\n') for line in tf]
+    subtissues= [line.strip('\n') for line in sf]
 sample_names=sample_dict.keys()
-loadSRAtk="module load {} && ".format(config['sratoolkit_version'])
-loadSalmon= "module load {} &&".format(config['salmon_version'])
+rmats_events=['SE','RI','MXE','A5SS','A3SS']
+#software version info
 salmon_version=config['salmon_version']
+stringtie_version=config['stringtie_version']
+STAR_version=config['STAR_version']
+rmats_version=config['rmats_verson']
+R_version=config['R_version']
+TransDecoder_version=config['TransDecoder_version']
+samtools_version=config['samtools_version']
+gffcompare_version=config['gffcompare_version']
+
+#commonly used files
 STARindex='ref/STARindex'
 ref_fasta='ref/gencodeRef.fa'
 ref_GTF='ref/gencodeAno.gtf'
@@ -71,7 +79,7 @@ stringtie_full_gtf='results/all_tissues.combined.gtf'
 rule all:
     input:expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
      'results/stringtie_alltissues_cds.gff3',\
-     expand('results/all_tissues.{event}.incLevel.tsv', event=['SE','RI','MXE','A5SS','A3SS'])
+     expand('results/all_tissues.{event}.incLevel.tsv', event=rmats_events)
 
 '''
 ****PART 1**** download files and align to genome
@@ -92,7 +100,7 @@ rule downloadGencode:
         gunzip ref/gencodePA_tmp.fa.gz
         module load python/3.6
         python3 scripts/filterFasta.py ref/gencodePA_tmp.fa ref/chroms_to_remove ref/gencodePA.fa
-        module load samtools
+        module load {samtools_version}
         samtools faidx ref/gencodePA.fa
 
         '''
@@ -103,7 +111,7 @@ rule build_STARindex:
     output:STARindex
     shell:
         '''
-        module load STAR
+        module load {STAR_version}
         mkdir -p ref/STARindex
         STAR --runThreadN 16 --runMode genomeGenerate --genomeDir {output[0]} --genomeFastaFiles {input[0]} --sjdbGTFfile {input[1]} --sjdbOverhang 100
 
@@ -119,7 +127,7 @@ rule run_STAR_alignment:
         '''
         id={wildcards.id}
         mkdir -p STARbams/$id
-        module load STAR
+        module load {STAR_version}
         STAR --runThreadN 8 --genomeDir {input.index} --outSAMstrandField intronMotif  --readFilesIn {input.fastqs} \
         --readFilesCommand gunzip -c --outFileNamePrefix STARbams/$id/raw. --outSAMtype BAM Unsorted
         '''
@@ -129,7 +137,7 @@ rule sort_bams:
     output:'STARbams/{id}/Aligned.out.bam'
     shell:
         '''
-        module load samtools
+        module load {samtools_version}
         samtools sort -o {output[0]} --threads 7 {input[0]}
         '''
 '''
@@ -146,6 +154,7 @@ rule sort_bams:
 -01/22/19
     - use gffcompare gtf not stringtie-merge gtf because gffcompare is significantly better than stringtie at mapping
     back to genes. GFFcompare found 20K novel tx vs 18K on st-merge, with the same number of transcript.
+    - at the initial merge step with stringtie, filteing out transcripts with at least 1 tpm in a third of the samples 
 
 '''
 
@@ -155,7 +164,7 @@ rule run_stringtie:
     output:'st_out/{sample}.gtf'
     shell:
         '''
-        module load stringtie
+        module load {stringtie_version}
         stringtie {input[0]} -o {output[0]} -p 8 -G ref/gencodeAno_bsc.gtf
         '''
 
@@ -169,23 +178,22 @@ rule merge_gtfs_by_tissue:
         pattern={wildcards.tissue}
         num=$(awk -v pattern="$pattern" '$4==pattern' {sample_file} | wc -l)
         k=3
-	    module load stringtie
+	    module load {stringtie_version}
         stringtie --merge -G ref/gencodeAno_bsc.gtf -l {wildcards.tissue}_MSTRG -F $((num/k)) -T $((num/k)) -o {output[0]} {input}
         '''
 rule merge_tissue_gtfs:
-    input: expand('ref/tissue_gtfs/{tissue}_st.gtf',tissue=eye_tissues)
+    input: expand('ref/tissue_gtfs/{tissue}_st.gtf',tissue=tissues)
     output: stringtie_full_gtf, 'results/all_tissues.stringtie_merge.gtf'
     shell:
         '''
-        module load stringtie
+        module load {stringtie_version}
         stringtie --merge -G ref/gencodeAno_bsc.gtf  -o {output[1]} {input}
-
         mkdir -p ref/gffread_dir
-        module load gffcompare
+        module load {gffcompare_version}
         gffcompare -r ref/gencodeAno_bsc.gtf -o ref/gffread_dir/all_tissues {input}
         mv ref/gffread_dir/all_tissues.combined.gtf {output[0]}
         '''
-
+#gffread v0.9.12.Linux_x86_64/
 rule make_tx_fasta:
     input: stringtie_full_gtf
     output: 'results/combined_stringtie_tx.fa'
@@ -200,7 +208,7 @@ rule run_trans_decoder:
     shell:
         '''
         cd ref
-        module load TransDecoder
+        module load {TransDecoder_version}
         TransDecoder.LongOrfs -t ../{input}
         TransDecoder.Predict --single_best_only -t ../{input}
         mv combined_stringtie_tx.fa.*  ../results/
@@ -212,7 +220,7 @@ rule gtf_to_gff3:
     output: 'results/stringtie_alltissues_cds.gff3'
     shell:
         '''
-        module load R
+        module load {R_version}
         Rscript scripts/clean_cds_gff3.R {input.gtf} {input.cds} {output} {params.cores}
         '''
 
@@ -228,12 +236,10 @@ rule rebuild_star_index:
     output:'ref/STARindex_stringtie'
     shell:
         '''
-        module load STAR
+        module load {STAR_version}
         mkdir -p {output[0]}
         STAR --runThreadN 16 --runMode genomeGenerate --genomeDir {output[0]} --genomeFastaFiles {input[0]} --sjdbGTFfile {input[1]} --sjdbOverhang 100
         '''
-
-
 
 rule realign_STAR:
     input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.id), fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.id)] if sample_dict[wildcards.id]['paired'] else fql + 'fastq_files/{}.fastq.gz'.format(wildcards.id),
@@ -244,56 +250,49 @@ rule realign_STAR:
         '''
         id={wildcards.id}
         mkdir -p STARbams_realigned/$id
-        module load STAR
+        module load {STAR_version}
         STAR  --outSAMstrandField intronMotif --outSAMtype BAM Unsorted --alignSJDBoverhangMin 6 \
          --alignIntronMax 299999 --runThreadN 8 --genomeDir {input.index} --sjdbGTFfile {input.gtf} \
          --readFilesIn {input.fastqs} --readFilesCommand gunzip -c --outFileNamePrefix STARbams_realigned/$id/
         '''
 
-
-rule preprMats_running:# this is going to run multiple times, but should not be a problem
+rule preprMats_running:
     input: expand('STARbams_realigned/{id}/Aligned.out.bam',id=sample_names)
     output:expand('ref/rmats_locs/{tissue}.rmats.txt',tissue=subtissues)
     shell:
         '''
-        module load R
+        module load {R_version}
         Rscript scripts/preprMATSV2.R {config[sampleFile]}
         '''
 
-
 rule runrMATS:
     input: 'ref/rmats_locs/{tissue}.rmats.txt','ref/STARindex_stringtie',stringtie_full_gtf
-             #,'ref/{tissue1}.rmats.txt','ref/{tissue2}.rmats.txt'
-    output: 'rmats_out/{tissue}'
+    output:expand('rmats_out/{{tissue}}/{event}.MATS.JC.txt', event=rmats_events)
     # might have to change read length to some sort of function
     shell:
-        #**need to fix this for bam mode**
         '''
-        module load rmats
+        module load {rmats_version}
         rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired --readLength 130 --gtf {input[2]} --bi {input[1]} --od {output[0]}
         '''
 rule process_rmats_output:
     input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-    output:'rmats_clean/{sub_tissue}/wide.{event}.MATS.JC.txt',\
-    'rmats_clean/{sub_tissue}/raw.{event}.MATS.JC.txt',\
-    'rmats_clean/{sub_tissue}/bin.{event}.MATS.JC.txt',\
-    'rmats_clean/{sub_tissue}/multi.{event}.MATS.JC.txt'
+    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['wide','raw','bin','multi'])
     shell:
         '''
-        module load R
+        module load {R_version}
         Rscript scripts/process_rmats_output.R {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
         '''
+
 rule combined_rmats_output:
     input: expand('rmats_clean/{sub_tissue}/bin.{{event}}.MATS.JC.txt', sub_tissue=subtissues)
     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
     output:'results/all_tissues.{event}.incLevel.tsv','results/all_tissues.{event}.medCounts.tsv'
     shell:
         '''
-        module load R
+        module load {R_version}
         Rscript scripts/combine_rmats_output.R {params.event} {output}
         '''
-
 
 '''
 PART 5 - quantify new transcripts

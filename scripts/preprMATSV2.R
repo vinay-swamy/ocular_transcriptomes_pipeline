@@ -12,9 +12,5 @@ ttypes=unique(sample_design$subtissue)
 for(type in ttypes){
   df <- filter(sample_design, subtissue==type ,paired=='y')
   writeLines(df$path,paste0('ref/rmats_locs/',gsub(' ', '.' ,type),'.rmats.txt'),sep = ',')
- 
-}
 
-st_full <- read_tsv('sampleTableFull.tsv', 
-                    col_names = c('sample_accession', 'run_accession', 'paired','tissue','subtissue','origin')) %>%
-    filter(subtissue=="RPE_Stem.Cell.Line")
+}

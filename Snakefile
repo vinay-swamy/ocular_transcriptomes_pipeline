@@ -69,7 +69,7 @@ fql=config['fastq_path']
 stringtie_full_gtf='results/all_tissues.combined.gtf'
 
 rule all:
-    input:#expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
+    input:expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
      'results/stringtie_alltissues_cds.gff3',\
      expand('results/all_tissues.{event}.incLevel.tsv', event=['SE','RI','MXE','A5SS','A3SS'])
 
@@ -305,7 +305,7 @@ rule build_salmon_index:
     shell:
         '''
         module load {salmon_version}
-        salmon index -t {input} --gencode -i {output} --type quasi --perfectHash -k 31'
+        salmon index -t {input} --gencode -i {output} --type quasi --perfectHash -k 31
         '''
 
 

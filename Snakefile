@@ -154,7 +154,7 @@ rule sort_bams:
 -01/22/19
     - use gffcompare gtf not stringtie-merge gtf because gffcompare is significantly better than stringtie at mapping
     back to genes. GFFcompare found 20K novel tx vs 18K on st-merge, with the same number of transcript.
-    - at the initial merge step with stringtie, filteing out transcripts with at least 1 tpm in a third of the samples 
+    - at the initial merge step with stringtie, filteing out transcripts with at least 1 tpm in a third of the samples
 
 '''
 
@@ -191,7 +191,8 @@ rule merge_tissue_gtfs:
         mkdir -p ref/gffread_dir
         module load {gffcompare_version}
         gffcompare -r ref/gencodeAno_bsc.gtf -o ref/gffread_dir/all_tissues {input}
-        mv ref/gffread_dir/all_tissues.combined.gtf {output[0]}
+        module load {R_version}
+        Rscript scripts/fix_gene_id.R ref/gffread_dir/all_tissues.combined.gtf {output[0]}
         '''
 #gffread v0.9.12.Linux_x86_64/
 rule make_tx_fasta:
@@ -271,8 +272,10 @@ rule runrMATS:
     # might have to change read length to some sort of function
     shell:
         '''
+        tissue={wildcards.tissue}
         module load {rmats_version}
-        rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired --readLength 130 --gtf {input[2]} --bi {input[1]} --od {output[0]}
+        rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired \
+         --readLength 130 --gtf {input[2]} --bi {input[1]} --od rmats_out/$tissue
         '''
 rule process_rmats_output:
     input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'

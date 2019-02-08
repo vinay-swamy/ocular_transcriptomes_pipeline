@@ -66,7 +66,7 @@ R_version=config['R_version']
 TransDecoder_version=config['TransDecoder_version']
 samtools_version=config['samtools_version']
 gffcompare_version=config['gffcompare_version']
-
+hmmer_version=config['hmmer_version']
 #commonly used files
 STARindex='ref/STARindex'
 ref_fasta='ref/gencodeRef.fa'
@@ -78,8 +78,8 @@ stringtie_full_gtf='results/all_tissues.combined.gtf'
 
 rule all:
     input:expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
-     'results/stringtie_alltissues_cds.gff3',\
-     expand('results/all_tissues.{event}.incLevel.tsv', event=rmats_events)
+     'results/stringtie_alltissues_cds.gff3','results/hmmer/domain_hits.tsv',\
+     expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events)
 
 '''
 ****PART 1**** download files and align to genome
@@ -205,24 +205,54 @@ rule make_tx_fasta:
 
 rule run_trans_decoder:
     input:'results/combined_stringtie_tx.fa'
-    output:'results/combined_stringtie_tx.fa.transdecoder.gff3'
+    output:'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3', \
+    'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
     shell:
         '''
         cd ref
         module load {TransDecoder_version}
         TransDecoder.LongOrfs -t ../{input}
         TransDecoder.Predict --single_best_only -t ../{input}
-        mv combined_stringtie_tx.fa.*  ../results/
+        mv combined_stringtie_tx.fa.*  ../results/transdecoder_results/
         '''
+rule clean_pep:
+    input:'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
+    output:'results/best_orfs.transdecoder.pep', 'ref/pep_fasta_meta_info.tsv'
+    shell:
+        '''
+        python3 clean_pep.py {input} {ouput}
+        '''
+rule build_pfm_hmmDB:
+    params: url=config['pfam_db']
+    output:'ref/hmmer/Pfam-A.hmm'
+    shell:
+        '''
+        wget -O - {params.url} | gunzip -c - > {output}
+        module load {hmmer_version}
+        hmmpress {output}
+        '''
+
+rule run_hmmscan:
+    input: 'ref/hmmer/Pfam-A.hmm', 'results/best_orfs.transdecoder.pep',
+    output:tab='results/hmmer/seq_hits.tsv',
+        dom='results/hmmer/domain_hits.tsv',
+        pfm='results/hmmer/pfam_hits.tsv'
+    shell:
+        '''
+        module load {hmmer_version}
+        hmmscan --cpu 24 --tblout {output.tab} --domtblout {output.dom} --pfamtblout {output.pfm} {input}
+        '''
+
+
 rule gtf_to_gff3:
-    input:cds='results/combined_stringtie_tx.fa.transdecoder.gff3',
+    input:cds='results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3',
         gtf=stringtie_full_gtf
     params:cores='12'
     output: 'results/stringtie_alltissues_cds.gff3'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/clean_cds_gff3.R {input.gtf} {input.cds} {output} {params.cores}
+        Rscript scripts/merge_CDS_gtf.R {input.gtf} {input.cds} {output} {params.cores}
         '''
 
 '''
@@ -290,7 +320,7 @@ rule process_rmats_output:
 rule combined_rmats_output:
     input: expand('rmats_clean/{sub_tissue}/bin.{{event}}.MATS.JC.txt', sub_tissue=subtissues)
     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-    output:'results/all_tissues.{event}.incLevel.tsv','results/all_tissues.{event}.medCounts.tsv'
+    output:'results/complete_rmats_output/all_tissues.{event}.incLevel.tsv','results/complete_rmats_output/all_tissues.{event}.medCounts.tsv'
     shell:
         '''
         module load {R_version}

@@ -67,6 +67,7 @@ TransDecoder_version=config['TransDecoder_version']
 samtools_version=config['samtools_version']
 gffcompare_version=config['gffcompare_version']
 hmmer_version=config['hmmer_version']
+crossmap_version=config['crossmap_version']
 #commonly used files
 STARindex='ref/STARindex'
 ref_fasta='ref/gencodeRef.fa'
@@ -75,10 +76,10 @@ ref_GTF_basic='ref/gencodeAno_bsc.gtf'
 ref_PA='ref/gencodePA.fa'
 fql=config['fastq_path']
 stringtie_full_gtf='results/all_tissues.combined.gtf'
-
+chain_file=config['chain_file']
 rule all:
     input:expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
-     'results/stringtie_alltissues_cds.gff3','results/hmmer/domain_hits.tsv',\
+     'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
      expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events)
 
 '''
@@ -254,6 +255,16 @@ rule gtf_to_gff3:
         module load {R_version}
         Rscript scripts/merge_CDS_gtf.R {input.gtf} {input.cds} {output} {params.cores}
         '''
+
+rule liftOver_gff3:
+    input: 'results/stringtie_alltissues_cds.gff3'
+    output'results/stringtie_alltissues_cds_b37.gff3'
+    shell:
+        '''
+        module load crossmap
+        crossmap gff {chain_file} {input} {output}
+        '''
+
 
 '''
 ****PART 4**** rMATS

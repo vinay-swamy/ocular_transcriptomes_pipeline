@@ -70,6 +70,7 @@
 	{
 		"partition" : "norm",
 		"time" : "48:00:00",
+		"cpus-per-task" : "8",
 		"mem" : "48g",
 		"output"  : "00log/{rule}_{wildcards}.out",
 		"error" : "00log/{rule}_{wildcards}.err",
@@ -78,9 +79,9 @@
 	"gtf_to_gff3" :
         {
                 "partition" : "norm",
-                "time" : "4:00:00",
+                "time" : "08:00:00",
                 "cpus-per-task" : "12",
-                "mem" : "96g",
+                "mem" : "108g",
                 "output"  : "00log/{rule}_{wildcards}.out",
                 "error" : "00log/{rule}_{wildcards}.err",
                 "extra" : ""

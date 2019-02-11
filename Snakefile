@@ -220,7 +220,7 @@ rule clean_pep:
     output:'results/best_orfs.transdecoder.pep', 'ref/pep_fasta_meta_info.tsv'
     shell:
         '''
-        python3 clean_pep.py {input} {ouput}
+        python3 clean_pep.py {input} {output}
         '''
 rule build_pfm_hmmDB:
     params: url=config['pfam_db']

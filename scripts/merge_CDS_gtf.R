@@ -3,22 +3,18 @@ library(tidyverse)
 library(IRanges)
 library(parallel)
 args= commandArgs(trailingOnly = T)
-#args=c('results/all_tissues.combined.gtf',
-#       'results/combined_stringtie_tx.fa.transdecoder.gff3',
+# args=c('results_b38/all_tissues.combined.gtf',
+#       'results_b38/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3',
 #       'testout.gff3',
-#       1)
+#       2)
 gtf_file=args[1]
 cds_file=args[2]
 outfile=args[3]
 cores=args[4]
 
 
-print(gtf_file)
-print(cds_file)
 gtf <- rtracklayer::readGFF(gtf_file)
-
 td_cds <- rtracklayer::readGFF(cds_file) %>% as.data.frame()
-
 
 scale_tx_length <- function(gtf){
     # add releative lengths to exons ie coordinates in spliced tx
@@ -48,8 +44,8 @@ merge_gtf_cds <- function(tx,gtf,td_cds,gene){
     # so we have to map the features from cds to gtf. We do this by first c=finding relative coordinates for each tx 
     # in the gtf, then overlapping cds coordinates, and then create the cds, 5putr, 3putr types and merge to form 
     # a complete entry in gff3 format.
-    
-    t_tx <- filter(gtf, transcript_id==tx) %>% mutate(ID=NA,parent=NA,length=end-start )
+    # need to subtract 1 from gtf start to allow overlap with a single 
+    t_tx <- filter(gtf, transcript_id==tx) %>% mutate(ID=NA,parent=NA, start=start-1, length=end-start )
     tx_line <- t_tx[1,] %>% mutate(type='mRNA',scaled_start=NA,scaled_end=NA, scaled_length=NA,
                                    ID=tx, parent = gene)
     t_tx <- t_tx[-1,] %>% mutate(ID=paste(tx,'exon',exon_number,sep = '_'), parent=tx)
@@ -167,6 +163,7 @@ fin <- mclapply(gene_list,function(x) wrapper(x = x,gtf = gtf ,td_cds = td_cds, 
                                        c('transcript_id', 'gene_id','gene_name', 'oId','cmp_ref','exon_number'))
 
 fin=fin %>% mutate(strand=gsub('*','+', strand, fixed=T))
+save.image(file='mergeCDS_Rimg.Rdata')
 write_gff3(df = fin,file = outfile)
 
 

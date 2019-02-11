@@ -214,7 +214,7 @@ rule run_trans_decoder:
         module load {TransDecoder_version}
         TransDecoder.LongOrfs -t ../{input}
         TransDecoder.Predict --single_best_only -t ../{input}
-        mv combined_stringtie_tx.fa.*  ../results/transdecoder_results/
+        mv combined_stringtie_tx.fa.transdecoder.*  ../results/transdecoder_results/
         '''
 rule clean_pep:
     input:'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
@@ -261,7 +261,7 @@ rule liftOver_gff3:
     output'results/stringtie_alltissues_cds_b37.gff3'
     shell:
         '''
-        module load crossmap
+        module load {crossmap_version}
         crossmap gff {chain_file} {input} {output}
         '''
 
@@ -315,7 +315,7 @@ rule runrMATS:
         '''
         tissue={wildcards.tissue}
         module load {rmats_version}
-        rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired \
+        rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired --nthread 8 \
          --readLength 130 --gtf {input[2]} --bi {input[1]} --od rmats_out/$tissue
         '''
 rule process_rmats_output:

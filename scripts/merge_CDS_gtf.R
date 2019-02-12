@@ -1,4 +1,3 @@
-setwd('/data/swamyvs/eyeintegration_splicing')
 library(tidyverse)
 library(IRanges)
 library(parallel)
@@ -7,10 +6,12 @@ args= commandArgs(trailingOnly = T)
 #       'results_b38/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3',
 #       'testout.gff3',
 #       2)
-gtf_file=args[1]
-cds_file=args[2]
-outfile=args[3]
-cores=args[4]
+working_dir= args[1]
+gtf_file=args[2]
+cds_file=args[3]
+outfile=args[4]
+cores=args[5]
+setwd(working_dir)
 
 
 gtf <- rtracklayer::readGFF(gtf_file)
@@ -19,7 +20,7 @@ td_cds <- rtracklayer::readGFF(cds_file) %>% as.data.frame()
 scale_tx_length <- function(gtf){
     # add releative lengths to exons ie coordinates in spliced tx
     gtf <- gtf %>% mutate(scaled_start=1,scaled_end=1)
-    gtf[1,] <- gtf[1,]%>% mutate(scaled_end=end-start) 
+    gtf[1,] <- gtf[1,]%>% mutate(scaled_end=end-start)
     offset <- 0
     if(nrow(gtf)==1) return(gtf %>% mutate(scaled_length= scaled_end-scaled_start))
     for(i in 2:nrow(gtf)){
@@ -41,10 +42,10 @@ get_cds_genomic_coords <- function(t_tx,cds_loc){
 
 merge_gtf_cds <- function(tx,gtf,td_cds,gene){
     # The main challenge here is that the cds file has coordinates relative to each individual gene
-    # so we have to map the features from cds to gtf. We do this by first c=finding relative coordinates for each tx 
-    # in the gtf, then overlapping cds coordinates, and then create the cds, 5putr, 3putr types and merge to form 
+    # so we have to map the features from cds to gtf. We do this by first c=finding relative coordinates for each tx
+    # in the gtf, then overlapping cds coordinates, and then create the cds, 5putr, 3putr types and merge to form
     # a complete entry in gff3 format.
-    # need to subtract 1 from gtf start to allow overlap with a single 
+    # need to subtract 1 from gtf start to allow overlap with a single
     t_tx <- filter(gtf, transcript_id==tx) %>% mutate(ID=NA,parent=NA, start=start-1, length=end-start )
     tx_line <- t_tx[1,] %>% mutate(type='mRNA',scaled_start=NA,scaled_end=NA, scaled_length=NA,
                                    ID=tx, parent = gene)
@@ -165,6 +166,3 @@ fin <- mclapply(gene_list,function(x) wrapper(x = x,gtf = gtf ,td_cds = td_cds, 
 fin=fin %>% mutate(strand=gsub('*','+', strand, fixed=T))
 save.image(file='mergeCDS_Rimg.Rdata')
 write_gff3(df = fin,file = outfile)
-
-
-

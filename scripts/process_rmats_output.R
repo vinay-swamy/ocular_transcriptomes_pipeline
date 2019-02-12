@@ -1,18 +1,18 @@
-
-#setwd('~/NIH/eyeintegration_splicing/')
-setwd('/data/swamyvs/eyeintegration_splicing')
 library(tidyverse)
 #args=c('rmats_out/RPE_Adult.Tissue/A3SS.MATS.JC.txt','A3SS.MATS.JC.txt', 'test_raw.tsv ','test_bin.tsv',
 #       'test_multi.tsv')
 args= commandArgs( trailingOnly = T)
-file= args[1]
-event= args[2]
-sample_file <- args[3]
-tissue <- args[4]
-outfile_wide <- args[5]
-outfile_raw <-args[6]
-outfile_bin <- args[7]
-outfile_multi <- args[8]
+working_dir=args[1]
+file= args[2]
+event= args[3]
+sample_file <- args[4]
+tissue <- args[5]
+outfile_wide <- args[6]
+outfile_raw <-args[7]
+outfile_bin <- args[8]
+outfile_multi <- args[9]
+setwd(working_dir)
+
 process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_raw,outfile_bin,outfile_multi){
     event_header <- list(SE.MATS.JC.txt=c('chr'	,'strand',	'exonStart_0base',	'exonEnd',	'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
                            RI.MATS.JC.txt=c('chr'	,'strand',	'riExonStart_0base',	'riExonEnd'	,'upstreamES'	,'upstreamEE'	,'downstreamES'	,'downstreamEE'),
@@ -39,10 +39,10 @@ process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_r
         colnames(final) <- paste(col,c('avg','med','sd'),sep = '_')
         return(final)
     }
-    
+
     make_wide_table <- function(df,col,samp_tab, t_tissue){
         t_col <- pull(df,col)
-        wide_df <- lapply(t_col, function(x) strsplit(x,',')%>%unlist%>%as.numeric) %>% 
+        wide_df <- lapply(t_col, function(x) strsplit(x,',')%>%unlist%>%as.numeric) %>%
             do.call(rbind,.) %>% as.data.frame
         if(grepl('2',col)){
             colnames(wide_df) <- filter(samp_tab, tissue=='synth',paired=='y') %>% pull (sample) %>% paste(col,sep='_')
@@ -50,12 +50,12 @@ process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_r
         }
         colnames(wide_df) <- filter(samp_tab, tissue==t_tissue,paired=='y') %>% pull (sample) %>% paste(col,sep='_')
         wide_df
-        
+
     }
-    
+
     target_event <- read_tsv(file = file)
     sample_table <- read_tsv(file = sample_file, col_names = c('sample','run','paired','tissue','subtissue','origin'))
-    
+
     if( nrow(target_event)==0){
       print('empty event file')
       k=colnames(target_event)
@@ -65,13 +65,13 @@ process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_r
       writeLines(k, outfile_multi, sep='\t')
       return(0)
     }
-    
-    counts_long <- lapply(c('IJC_SAMPLE_1','IJC_SAMPLE_2'),function(x) make_wide_table(target_event,x,sample_table,tissue)) %>% 
+
+    counts_long <- lapply(c('IJC_SAMPLE_1','IJC_SAMPLE_2'),function(x) make_wide_table(target_event,x,sample_table,tissue)) %>%
          c(target_event[,event_header[[event]]],.) %>% do.call(cbind,.)
     countsCol<-c('IJC_SAMPLE_1','SJC_SAMPLE_1','IJC_SAMPLE_2','SJC_SAMPLE_2',"IncLevel1","IncLevel2")
     write_tsv(counts_long,outfile_wide)
-    
-    
+
+
     procd_cols <- lapply(countsCol,function(x)parse_count_info(target_event,x)) %>%do.call(cbind,.)
     pvals <- mutate(target_event, PValue=replace(PValue, PValue==0,2.2e-16), FDR=replace(FDR,FDR==0,2.2e-16)) %>%
         select(PValue, FDR)

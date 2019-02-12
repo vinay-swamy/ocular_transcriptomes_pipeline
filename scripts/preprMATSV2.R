@@ -1,7 +1,10 @@
 library(tidyverse)
-setwd('/data/swamyvs/eyeintegration_splicing')
 args = commandArgs(trailingOnly=TRUE)
-sample_design <- read.table(args[1],stringsAsFactors = F, header = F, sep = '\t')
+working_dir=args[1]
+sample_file=args[2]
+setwd(working_dir)
+
+sample_design <- read.table(sample_file, stringsAsFactors = F, header = F, sep = '\t')
 colnames(sample_design) <- c('sample_accession', 'run_accession', 'paired','tissue','subtissue','origin')
 sample_design <-sample_design %>%
     mutate(path=sapply(sample_design$sample_accession,function(x)paste0('STARbams_realigned/',x,'/Aligned.out.bam')),stringsAsFactors = F)

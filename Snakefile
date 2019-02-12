@@ -8,6 +8,9 @@ notes:
 -the 5.2 version requires specifying directorys in output section of rule iwth directory(). Biowulf currently using 5.1
 -need to make a rule to download all Gencode refs
 
+02/12/19 Changes
+-all software versioned in config file
+-added hmmscan protein domain search
 
 01/15/19 Changes
 - converted STAR rules into shell from python
@@ -69,6 +72,7 @@ gffcompare_version=config['gffcompare_version']
 hmmer_version=config['hmmer_version']
 crossmap_version=config['crossmap_version']
 #commonly used files
+working_dir=config['working_dir']
 STARindex='ref/STARindex'
 ref_fasta='ref/gencodeRef.fa'
 ref_GTF='ref/gencodeAno.gtf'
@@ -78,7 +82,7 @@ fql=config['fastq_path']
 stringtie_full_gtf='results/all_tissues.combined.gtf'
 chain_file=config['chain_file']
 rule all:
-    input:expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),\
+    input:'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata',\
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
      expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events)
 
@@ -86,7 +90,7 @@ rule all:
 ****PART 1**** download files and align to genome
 -still need to add missing fastq files
 -gffread needs indexed fasta
--need to add versioning of tools to yaml
+-need to add versioning of tools to yaml{DONE}
 '''
 rule downloadGencode:
     output:ref_fasta,ref_GTF_basic,ref_PA
@@ -106,6 +110,15 @@ rule downloadGencode:
 
         '''
 
+rule build_pfm_hmmDB:
+    params: url=config['pfam_db']
+    output:'ref/hmmer/Pfam-A.hmm'
+    shell:
+        '''
+        wget -O - {params.url} | gunzip -c - > {output}
+        module load {hmmer_version}
+        hmmpress {output}
+        '''
 
 rule build_STARindex:
     input: ref_PA, ref_GTF_basic
@@ -117,8 +130,6 @@ rule build_STARindex:
         STAR --runThreadN 16 --runMode genomeGenerate --genomeDir {output[0]} --genomeFastaFiles {input[0]} --sjdbGTFfile {input[1]} --sjdbOverhang 100
 
         '''
-
-
 
 rule run_STAR_alignment:
     input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.id),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.id)] if sample_dict[wildcards.id]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.id),
@@ -142,7 +153,7 @@ rule sort_bams:
         samtools sort -o {output[0]} --threads 7 {input[0]}
         '''
 '''
-****PART 2**** Align with STAR and build Transcriptome
+****PART 2**** Align with STAR, build Transcriptome, and process
 -Reminder that STAR makes the bam even if the alignment fails
 -following CHESS paper - run each bam individually through stringtie, then merge to a tissue level, then merge into 1
  use gffcompare at each meerge step;
@@ -168,9 +179,7 @@ rule run_stringtie:
         module load {stringtie_version}
         stringtie {input[0]} -o {output[0]} -p 8 -G ref/gencodeAno_bsc.gtf
         '''
-
 #gffread v0.9.12.Linux_x86_64/
-
 rule merge_gtfs_by_tissue:
     input: lambda wildcards: tissue_to_gtf(wildcards.tissue, sample_dict)
     output: 'ref/tissue_gtfs/{tissue}_st.gtf'
@@ -182,6 +191,7 @@ rule merge_gtfs_by_tissue:
 	    module load {stringtie_version}
         stringtie --merge -G ref/gencodeAno_bsc.gtf -l {wildcards.tissue}_MSTRG -F $((num/k)) -T $((num/k)) -o {output[0]} {input}
         '''
+
 rule merge_tissue_gtfs:
     input: expand('ref/tissue_gtfs/{tissue}_st.gtf',tissue=tissues)
     output: stringtie_full_gtf, 'results/all_tissues.stringtie_merge.gtf'
@@ -193,7 +203,7 @@ rule merge_tissue_gtfs:
         module load {gffcompare_version}
         gffcompare -r ref/gencodeAno_bsc.gtf -o ref/gffread_dir/all_tissues {input}
         module load {R_version}
-        Rscript scripts/fix_gene_id.R ref/gffread_dir/all_tissues.combined.gtf {output[0]}
+        Rscript scripts/fix_gene_id.R {working_dir} ref/gffread_dir/all_tissues.combined.gtf {output[0]}
         '''
 #gffread v0.9.12.Linux_x86_64/
 rule make_tx_fasta:
@@ -216,21 +226,13 @@ rule run_trans_decoder:
         TransDecoder.Predict --single_best_only -t ../{input}
         mv combined_stringtie_tx.fa.transdecoder.*  ../results/transdecoder_results/
         '''
+
 rule clean_pep:
     input:'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
     output:'results/best_orfs.transdecoder.pep', 'ref/pep_fasta_meta_info.tsv'
     shell:
         '''
         python3 clean_pep.py {input} {output}
-        '''
-rule build_pfm_hmmDB:
-    params: url=config['pfam_db']
-    output:'ref/hmmer/Pfam-A.hmm'
-    shell:
-        '''
-        wget -O - {params.url} | gunzip -c - > {output}
-        module load {hmmer_version}
-        hmmpress {output}
         '''
 
 rule run_hmmscan:
@@ -244,7 +246,6 @@ rule run_hmmscan:
         hmmscan --cpu 24 --tblout {output.tab} --domtblout {output.dom} --pfamtblout {output.pfm} {input}
         '''
 
-
 rule gtf_to_gff3:
     input:cds='results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3',
         gtf=stringtie_full_gtf
@@ -253,12 +254,12 @@ rule gtf_to_gff3:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/merge_CDS_gtf.R {input.gtf} {input.cds} {output} {params.cores}
+        Rscript scripts/merge_CDS_gtf.R {working_dir} {input.gtf} {input.cds} {output} {params.cores}
         '''
 
 rule liftOver_gff3:
     input: 'results/stringtie_alltissues_cds.gff3'
-    output:'results/stringtie_alltissues_cds_b37.gff3'
+    output: 'results/stringtie_alltissues_cds_b37.gff3'
     shell:
         '''
         module load {crossmap_version}
@@ -304,7 +305,7 @@ rule preprMats_running:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/preprMATSV2.R {config[sampleFile]}
+        Rscript scripts/preprMATSV2.R {working_dir} {config[sampleFile]}
         '''
 
 rule runrMATS:
@@ -318,6 +319,7 @@ rule runrMATS:
         rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired --nthread 8 \
          --readLength 130 --gtf {input[2]} --bi {input[1]} --od rmats_out/$tissue
         '''
+
 rule process_rmats_output:
     input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
@@ -325,7 +327,7 @@ rule process_rmats_output:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/process_rmats_output.R {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
+        Rscript scripts/process_rmats_output.R {working_dir} {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
         '''
 
 rule combined_rmats_output:
@@ -335,7 +337,7 @@ rule combined_rmats_output:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/combine_rmats_output.R {params.event} {output}
+        Rscript scripts/combine_rmats_output.R {working_dir} {params.event} {output}
         '''
 
 '''
@@ -351,7 +353,6 @@ rule build_salmon_index:
         salmon index -t {input} --gencode -i {output} --type quasi --perfectHash -k 31
         '''
 
-
 rule run_salmon:
     input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
         index='ref/salmonindex_st'
@@ -362,4 +363,13 @@ rule run_salmon:
         id={wildcards.sampleID}
         module load {salmon_version}
         salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o quant_files/$id
+        '''
+
+rule aggregate_salmon_counts:
+    input: expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names)
+    output: 'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/makeCountTables.R {working_dir} {stringtie_full_gtf} {output}
         '''

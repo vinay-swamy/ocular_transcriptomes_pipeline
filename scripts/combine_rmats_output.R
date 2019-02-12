@@ -1,12 +1,12 @@
 #setwd('~/NIH/eyeintegration_splicing/')
 library(tidyverse)
-setwd('/data/swamyvs/eyeintegration_splicing')
-
 args <-c('SE.MATS.JC.txt','results/all_tissues.SE.incLevel.tsv','results/all_tissues.SE.medCounts.tsv' )
 args <- commandArgs(trailingOnly = T)
-event=args[1]
-outfile_inclvl=args[2]
-outfile_medcts=args[3]
+working_dir=args[1]
+event=args[2]
+outfile_inclvl=args[3]
+outfile_medcts=args[4]
+setwd(working_dir)
 
 combine_allTissues <- function(event, outfile_inclvl,outfile_medcts){
     event_header <- list(SE.MATS.JC.txt=c('GeneID', 'chr'	,'strand',	'exonStart_0base',	'exonEnd',	'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),

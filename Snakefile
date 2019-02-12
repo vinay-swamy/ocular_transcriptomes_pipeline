@@ -258,7 +258,7 @@ rule gtf_to_gff3:
 
 rule liftOver_gff3:
     input: 'results/stringtie_alltissues_cds.gff3'
-    output'results/stringtie_alltissues_cds_b37.gff3'
+    output:'results/stringtie_alltissues_cds_b37.gff3'
     shell:
         '''
         module load {crossmap_version}

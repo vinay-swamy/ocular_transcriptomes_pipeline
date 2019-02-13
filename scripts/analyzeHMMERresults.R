@@ -1,14 +1,14 @@
 library(tidyverse)
 library(parallel)
-cores=2
+cores=15
 notes <- '
 "I think tab-delimited files are a minor evil in the world." - a dumbass
 -all txs only have 1 pc form so that
 '
 
 
-domain_file='results_b38/hmmer/domain_hits.tsv'
-gtf_file <- 'results_b38/all_tissues.combined.gtf'
+domain_file='results/hmmer/domain_hits.tsv'
+gtf_file <- 'results/all_tissues.combined.gtf'
 
 cn=c('target_name', 'target_accession' ,'tlen' ,'query_name', 'accession' ,'qlen' ,'evalue', 'total_score', 'total_bias', 'dom_num' , 
      'total_doms' , 'c_evalue' , 'i_evalue' , 'domain_score' , 'domain_bias' , 'start_hmm_coord' ,'end_hmmcoord','start_seq', 
@@ -31,21 +31,29 @@ n_tx <- tx_tab$transcript_id[1]
 r_tx <- tx_tab$ref_tx_id[1]
 novel<- filter(f_domain_hits, query_name==n_tx)
 ref <- filter(f_domain_hits, query_name==r_tx)
-check_diff_domains <- function(pair){
-
+check_diff_domains <- function(pair, dom){
     subj=pair[1,1]
     qu=pair[1,2]
-    n_s <- filter(f_domain_hits, query_name==subj)
-    n_q <- filter(f_domain_hits, query_name==qu)
-    if(nrow(subj)==0) return(FALSE)# novel tx not found in 
-    if(nrow(n_s)==nrow(n_q)) return(FALSE)# if both tx's have the same number of domains
-    return(TRUE)
+    n_s <- filter(dom, query_name==subj)
+    n_q <- filter(dom, query_name==qu)
+    if(nrow(n_s)==0) return(0)# novel tx not found in dom file
+    if(nrow(n_s)==nrow(n_q)){ if(n_s$description == n_q$description) return(2); return(0)}
+    # if both tx's have the same number of domain but different domains, we want ot know that
+    return(1)
 }
 tx_tab_list <- split(tx_tab%>%select(transcript_id, ref_tx_id,), 1:nrow(tx_tab))
-diff_dom <- sapply(tx_tab_list,function(x) check_similar_domains(x))
+diff_dom_f <- mclapply(tx_tab_list,function(x) check_diff_domains(x, f_domain_hits),mc.cores = cores)
 sum(grepl('MSTRG', gtf$oId))
+c_domain_hits <- filter(f_domain_hits, i_evalue<=.05)
+diff_dom_c <- mclapply(tx_tab_list,function(x) check_diff_domains(x, c_domain_hits),mc.cores = cores)
+diff_dom_c <- diff_dom_c %>% unlist
+sum(diff_dom_c==1)
+sum(diff_dom_c==0)
+sum(diff_dom_f==2)
+
 tx_tab_diff_dom <- tx_tab[!diff_dom,]
 diff_dom_hits <- filter(f_domain_hits, query_name%in%tx_tab_diff_dom$transcript_id)
 diff_dom_hits <- filter(diff_dom_hits, i_evalue<=.05)
+
 
 

@@ -229,10 +229,11 @@ rule run_trans_decoder:
 
 rule clean_pep:
     input:'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
-    output:'results/best_orfs.transdecoder.pep', 'ref/pep_fasta_meta_info.tsv'
+    output:pep='results/best_orfs.transdecoder.pep', meta_info='ref/pep_fasta_meta_info.tsv', len_cor_tab='results/len_cor_tab.tsv'
     shell:
         '''
-        python3 clean_pep.py {input} {output}
+        python3 scripts/clean_pep.py {input} /tmp/tmpvs.fasta {output.meta_info}
+        python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
         '''
 
 rule run_hmmscan:
@@ -248,13 +249,13 @@ rule run_hmmscan:
 
 rule gtf_to_gff3:
     input:cds='results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3',
-        gtf=stringtie_full_gtf
+        gtf=stringtie_full_gtf, len_cor_tab='results/len_cor_tab.tsv'
     params:cores='12'
     output: 'results/stringtie_alltissues_cds.gff3'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/merge_CDS_gtf.R {working_dir} {input.gtf} {input.cds} {output} {params.cores}
+        Rscript scripts/merge_CDS_gtf.R {working_dir} {input.gtf} {input.cds} {input.len_cor_tab} {output} {params.cores}
         '''
 
 rule liftOver_gff3:
@@ -316,7 +317,7 @@ rule runrMATS:
         '''
         tissue={wildcards.tissue}
         module load {rmats_version}
-        rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired --nthread 8 \
+        rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired  \
          --readLength 130 --gtf {input[2]} --bi {input[1]} --od rmats_out/$tissue
         '''
 

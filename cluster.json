@@ -1,7 +1,7 @@
 {
 	"__default__" :
 	{
-		"partition" : "quick",
+		"partition" : "norm",
 		"time" : "4:00:00",
 		"mem" : "16g",
 		"cpus-per-task" : "1",

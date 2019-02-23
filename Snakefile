@@ -342,7 +342,7 @@ rule combined_rmats_output:
         '''
 
 '''
-PART 5 - quantify new transcripts
+PART 5 - quantify new transcripts, identify lowly used transcripts, and realign
 '''
 
 rule build_salmon_index:
@@ -366,8 +366,41 @@ rule run_salmon:
         salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o quant_files/$id
         '''
 
+
+rule remove_low_used_tx:
+    input: fasta='results/combined_stringtie_tx.fa', q_files=expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),
+        gtf=stringtie_full_gtf
+    output: removal_file='results/tx_for_removal.txt', new_fasta='results/combined_stringtie_tx_trimmed.fa'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/soneson_low_usage.R {working_dir} {input.gtf} {output.removal_file}
+        python3 scripts/filterFasta.py {input.fasta} {output.removal_file} {output.new_fasta}
+        '''
+
+rule rebuild_salmon_index:
+    input: 'results/combined_stringtie_tx_trimmed.fa'
+    output:'ref/salmonindex_st_trimmed'
+    shell:
+        '''
+        module load {salmon_version}
+        salmon index -t {input} --gencode -i {output} --type quasi --perfectHash -k 31
+        '''
+
+rule rerun_salmon:
+    input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
+        index='ref/salmonindex_st_trimmed'
+    params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql)
+    output: 'requant_files/{sampleID}/quant.sf'
+    shell:
+        '''
+        id={wildcards.sampleID}
+        module load {salmon_version}
+        salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o requant_files/$id
+        '''
+
 rule aggregate_salmon_counts:
-    input: expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names)
+    input: expand('requant_files/{sampleID}/quant.sf',sampleID=sample_names)
     output: 'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata'
     shell:
         '''

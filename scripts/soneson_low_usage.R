@@ -5,6 +5,11 @@ library(tidyverse)
 # http://biorxiv.org/content/early/2015/08/24/025387
 # working dir, biowulf2
 args=commandArgs(trailingOnly=T)
+args <- c('/data/swamyvs/eyeintegration_splicing/',
+          'results/all_tissues.combined.gtf',
+          'results/tx_for_removal.txt')
+
+
 working_dir <- args[1]
 gtf_file = args[2]
 removal_file = args[3]
@@ -21,10 +26,14 @@ tx_c <- data.frame(txi$counts)
 # get gene name added
 tx_c <- merge(anno,tx_c, by.x='transcript_id',by.y='row.names')
 #  sum counts by gene for all samples and calculate tx usage ratio
-gene_sums <- summarizeToGene(txi = txi,tx2gene = anno)$counts[,samples_to_keep]%>%rowSums
-gene_sums_tx <- merge(tx_c[,1:3], as.data.frame(gene_sums), by.x='gene_name', all.x=T, by.y='row.names' )
-tx_c <- dplyr::arrange(tx_c,gene_name)
-all_ratios <- tx_c[,-(1:3)]/gene_sums_tx$gene_sums
+gene_sums <- summarizeToGene(txi = txi,tx2gene = anno)$counts 
+genes <- rownames(gene_sums)
+#%>% rowSums %>%as.data.frame 
+gene_sums <- data.frame( gene_id = genes,sums= rowSums(gene_sums))
+
+gene_sums_tx <- left_join(tx_c[,1:2], gene_sums, by='gene_id')%>% arrange(gene_id)
+tx_c <- dplyr::arrange(tx_c,gene_id)
+all_ratios <- tx_c[,-(1:2)]/gene_sums_tx$sums
 all_ratios[is.nan(as.matrix(all_ratios))] <- 0
 # find number of samples for each transcripts which are < 5% of the total
 low_usage <- which(rowSums(all_ratios)<=.05)

@@ -71,6 +71,7 @@ samtools_version=config['samtools_version']
 gffcompare_version=config['gffcompare_version']
 hmmer_version=config['hmmer_version']
 crossmap_version=config['crossmap_version']
+deeptools_version=config['deeptools_version']
 #commonly used files
 working_dir=config['working_dir']
 STARindex='ref/STARindex'
@@ -84,7 +85,8 @@ chain_file=config['chain_file']
 rule all:
     input:'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata',\
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
-     expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events)
+     expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events),\
+     expand('bigwigs/{id}.bw', id=sample_names)
 
 '''
 ****PART 1**** download files and align to genome
@@ -289,7 +291,8 @@ rule realign_STAR:
     input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.id), fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.id)] if sample_dict[wildcards.id]['paired'] else fql + 'fastq_files/{}.fastq.gz'.format(wildcards.id),
         index='ref/STARindex_stringtie',
         gtf=stringtie_full_gtf
-    output:'STARbams_realigned/{id}/Aligned.out.bam', 'STARbams_realigned/{id}/Log.final.out'
+    params: bam_dir=''
+    output:'/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam', '/data/OGVFB_BG/STARbams_realigned/{id}/Log.final.out'
     shell:
         '''
         id={wildcards.id}
@@ -300,13 +303,26 @@ rule realign_STAR:
          --readFilesIn {input.fastqs} --readFilesCommand gunzip -c --outFileNamePrefix STARbams_realigned/$id/
         '''
 
-rule preprMats_running:
-    input: expand('STARbams_realigned/{id}/Aligned.out.bam',id=sample_names)
-    output:expand('ref/rmats_locs/{tissue}.rmats.txt',tissue=subtissues)
+rule bam_to_bigwig:
+    input:'/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam'
+    output:'bigwigs/{id}.bw'
     shell:
         '''
+        module load {deeptools_version}
+        bamCoverage -p 4 -b {input} -o {output}
+        '''
+
+
+
+rule preprMats_running:
+    input: expand('/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam',id=sample_names)
+    params: bam_dir='/data/OGVFB_BG/STARbams_realigned/'
+    output:expand('ref/rmats_locs/{tissue}.rmats.txt',tissue=subtissues)
+    shell:
+        #include trailing / for bam_dir
+        '''
         module load {R_version}
-        Rscript scripts/preprMATSV2.R {working_dir} {config[sampleFile]}
+        Rscript scripts/preprMATSV2.R {working_dir} {config[sampleFile]} {params.bam_dir}
         '''
 
 rule runrMATS:
@@ -398,7 +414,7 @@ rule rerun_salmon:
         module load {salmon_version}
         salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o requant_files/$id
         '''
-
+# requant path is hard coded in the script below, that probably should change
 rule aggregate_salmon_counts:
     input: expand('requant_files/{sampleID}/quant.sf',sampleID=sample_names)
     output: 'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata'

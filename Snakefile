@@ -41,6 +41,14 @@ def tissue_to_gtf(tissue, sample_dict):
             res.append('st_out/{}.gtf'.format(sample))
     return (res)
 
+def tissue_to_bam(subtissue, sample_dict, bam_dir='/data/OGVFB_BG/STARbams_realigned/'):
+    res=[]
+
+    for sample in sample_dict.keys():
+        if sample_dict[sample]['subtissue']==subtissue :
+            res.append(bam_dir+'{}/Sorted.out.bam'.format(sample))
+    return(res)
+
 def salmon_input(id,sample_dict,fql):
     paired=sample_dict[id]['paired']
     id= fql + 'fastq_files/' + id
@@ -86,7 +94,7 @@ rule all:
     input:'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata',\
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
      expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events),\
-     expand('bigwigs/{id}.bw', id=sample_names)
+     expand('bigwigs/{id}.bw', id=sample_names), expand('tissue_bigwigs/{tissue}.bw', tissue=subtissues)
 
 '''
 ****PART 1**** download files and align to genome
@@ -291,28 +299,59 @@ rule realign_STAR:
     input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.id), fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.id)] if sample_dict[wildcards.id]['paired'] else fql + 'fastq_files/{}.fastq.gz'.format(wildcards.id),
         index='ref/STARindex_stringtie',
         gtf=stringtie_full_gtf
-    params: bam_dir=''
-    output:'/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam', '/data/OGVFB_BG/STARbams_realigned/{id}/Log.final.out'
+    params: bam_dir='/data/OGVFB_BG/STARbams_realigned'
+    output:temp('/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam'), '/data/OGVFB_BG/STARbams_realigned/{id}/Log.final.out'
     shell:
         '''
+        bam_dir={params.bam_dir}
         id={wildcards.id}
-        mkdir -p STARbams_realigned/$id
+        out_folder=$bam_dir/$id/
+        mkdir -p $out_folder
         module load {STAR_version}
         STAR  --outSAMstrandField intronMotif --outSAMtype BAM Unsorted --alignSJDBoverhangMin 6 \
          --alignIntronMax 299999 --runThreadN 8 --genomeDir {input.index} --sjdbGTFfile {input.gtf} \
-         --readFilesIn {input.fastqs} --readFilesCommand gunzip -c --outFileNamePrefix STARbams_realigned/$id/
+         --readFilesIn {input.fastqs} --readFilesCommand gunzip -c --outFileNamePrefix $out_folder
+        '''
+
+rule sort_and_index_bams:
+    input: '/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam'
+    output: bam='/data/OGVFB_BG/STARbams_realigned/{id}/Sorted.out.bam'
+    shell:
+        '''
+        module load {samtools_version}
+        samtools sort -@4 -O bam -o {output.bam} {input}
+        samtools index -b  {output.bam}
+        '''
+
+
+rule make_tissue_bams:
+    # ***if you change the location of the bams, you have to change it in the tissue_to_bam fucntion****
+    input:lambda wildcards: tissue_to_bam(wildcards.tissue, sample_dict)
+    params: bam_dir='/data/OGVFB_BG/STARbams_realigned'
+    output:'/data/OGVFB_BG/tissue_bams/{tissue}.bam'
+    shell:
+        '''
+        module load {samtools_version}
+        samtools merge {output} {input}
+        samtools index -b {output}
         '''
 
 rule bam_to_bigwig:
-    input:'/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam'
+    input:'/data/OGVFB_BG/STARbams_realigned/{id}/Sorted.out.bam'
     output:'bigwigs/{id}.bw'
     shell:
         '''
         module load {deeptools_version}
         bamCoverage -p 4 -b {input} -o {output}
         '''
-
-
+rule tisbam_to_bigwig:
+    input: '/data/OGVFB_BG/tissue_bams/{tissue}.bam'
+    output:'tissue_bigwigs/{tissue}.bw'
+    shell:
+        '''
+        module load {deeptools_version}
+        bamCoverage -p 4 -b {input} -o {output}
+        '''
 
 rule preprMats_running:
     input: expand('/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam',id=sample_names)

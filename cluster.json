@@ -143,8 +143,40 @@
                 "error" : "00log/{rule}_{wildcards}.err",
                 "extra" : ""
 
-        }
+        },
+        "sort_and_index_bams":
+        {
+                "partition" : "norm",
+                "cpus-per-task" : "4",
+                "time" : "4:00:00",
+                "mem" : "32g",
+                "output"  : "00log/{rule}_{wildcards}.out",
+                "error" : "00log/{rule}_{wildcards}.err",
+                "extra" : ""
 
+        },
+        "make_tissue_bams":
+        {
+                "partition" : "norm",
+                "cpus-per-task" : "4",
+                "time" : "24:00:00",
+                "mem" : "96g",
+                "output"  : "00log/{rule}_{wildcards}.out",
+                "error" : "00log/{rule}_{wildcards}.err",
+                "extra" : ""
+
+        },
+        "tisbam_to_bigwig":
+        {
+                "partition" : "norm",
+                "cpus-per-task" : "4",
+                "time" : "24:00:00",
+                "mem" : "96g",
+                "output"  : "00log/{rule}_{wildcards}.out",
+                "error" : "00log/{rule}_{wildcards}.err",
+                "extra" : ""
+
+        }
 
 
 }

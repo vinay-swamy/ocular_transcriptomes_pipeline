@@ -5,9 +5,9 @@ library(tidyverse)
 # http://biorxiv.org/content/early/2015/08/24/025387
 # working dir, biowulf2
 args=commandArgs(trailingOnly=T)
-args <- c('/data/swamyvs/eyeintegration_splicing/',
-          'results/all_tissues.combined.gtf',
-          'results/tx_for_removal.txt')
+#args <- c('/data/swamyvs/eyeintegration_splicing/',
+#          'results/all_tissues.combined.gtf',
+#s          'results/tx_for_removal.txt')
 
 
 working_dir <- args[1]

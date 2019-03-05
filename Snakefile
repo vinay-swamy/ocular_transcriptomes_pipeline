@@ -106,15 +106,14 @@ rule downloadGencode:
     output:ref_fasta,ref_GTF_basic,ref_PA
     shell:
         '''
-
-        wget -O ref/gencodeRef.fa.gz {config[refFasta_url]}
-        wget -O ref/gencodeAno_bsc.gtf.gz {config[refGTF_basic_url]}
-        wget -O ref/gencodePA_tmp.fa.gz {config[refPA_url]}
-        gunzip ref/gencodeRef.fa.gz
-        gunzip ref/gencodeAno_bsc.gtf.gz
-        gunzip ref/gencodePA_tmp.fa.gz
+        wget -O - {config[refFasta_url]} | gunzip -c - > ref/gencodeRef.fa
+        wget -O - {config[refGTF_basic_url]} | gunzip -c - > ref/gencodeAno_bsc.gtf
+        wget -O - {config[refPA_url]} | gunzip -c - > /tmp/gencodePA_tmp.fa
+        wget -O - {config[refProtSeq_url]} | gunzip -c - > /tmp/gencodeProtSeq.fa
+        wget -O - {config[refGFF3_url]} | gunzip -c > ref/gencodeGFF3.gff
         module load python/3.6
-        python3 scripts/filterFasta.py ref/gencodePA_tmp.fa ref/chroms_to_remove ref/gencodePA.fa
+        python3 scripts/filterFasta.py /tmp/gencodePA_tmp.fa ref/chroms_to_remove ref/gencodePA.fa
+        python3 scripts/clean_fasta.py /tmp/gencodeProtSeq.fa ref/gencodeProtSeq.fa
         module load {samtools_version}
         samtools faidx ref/gencodePA.fa
 
@@ -395,6 +394,17 @@ rule combined_rmats_output:
         module load {R_version}
         Rscript scripts/combine_rmats_output.R {working_dir} {params.event} {output}
         '''
+rule merge_all_events:
+    input: expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events)
+    output: 'results/all_rmats_events_tissues.medCounts.tsv' ,'all_rmats_events_tissues.incLevels.tsv'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/makeAllEventsTable.R {working_dir} {output}
+        '''
+
+
+
 
 '''
 PART 5 - quantify new transcripts, identify lowly used transcripts, and realign
@@ -420,6 +430,7 @@ rule run_salmon:
         module load {salmon_version}
         salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o quant_files/$id
         '''
+
 
 
 rule remove_low_used_tx:

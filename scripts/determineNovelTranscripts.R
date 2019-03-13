@@ -3,9 +3,9 @@ library(matrixStats)
 
 # args <- c('~/NIH/eyeintegration_splicing/',
 #           'results_b38/all_tissues.combined.gtf',
+#           'sampleTableV4.tsv',
 #           'results_b38/all_rmats_events_tissues.incLevels.tsv',
 #           'results_b38/all_rmats_events_tissues.medCounts.tsv',
-#           'sampleTableV4.tsv',
 #           'rdata/salmon_no_ssn_gene_quant.Rdata',
 #           'rdata/salmon_no_ssn_tx_quant.Rdata',
 #           'results_b38/salmon_tissue_level_counts.Rdata',
@@ -15,9 +15,9 @@ args <- commandArgs(trailingOnly = T)
 
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
-incTab_file <- args[3]
-medCts_file <- args[4]
-sample_table_file <- args[5]
+sample_table_file <- args[3]
+incTab_file <- args[4]
+medCts_file <- args[5]
 salmon_gene_quant<- args[6]
 salmon_tx_quant <- args[7]
 tissue_level_counts <- args[8]

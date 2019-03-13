@@ -1,21 +1,28 @@
 library(tidyverse)
-args=c('~/NIH/eyeintegration_splicing/', 'results_b38/all_tissues.combined.gtf', 
-       'all_novel_exon_info.Rdata', 'results_b38/as_event_ls_class.Rdata',
-       '/Volumes/data/eyeintegration_splicing/results/exons_for_cov_alys.bed')
+# args=c('~/NIH/eyeintegration_splicing/', 'results_b38/all_tissues.combined.gtf', 
+#        'all_novel_exon_info.Rdata','results_b38/salmon_tissue_level_counts.Rdata',  'results_b38/as_event_ls_class.Rdata',
+#        '/Volumes/data/eyeintegration_splicing/results/exons_for_cov_alys.bed')
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
-exon_info_file <- args[3]
-event_ls_file <- args[4]
-exon_bed_file <- args[5]
+salmon_count_file <- args[3]
+exon_info_file <- args[4]
+event_ls_file <- args[5]
+exon_bed_file <- args[6]
 
 
 setwd(working_dir)
 load(exon_info_file)
+salmon_cut_off_lvl <- 15
 gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file) %>% mutate(start=start-1)
 ref_gtf <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
 {filter(gfc_gtf, transcript_id %in% . )} 
-all_ref_exons <- filter(ref_gtf, type=='exon') %>% select(seqid, strand,start,end) %>% 
+ref_tx_min_exp <- filter(med_tx_counts, transcript_id%in% ref_gtf$transcript_id)
+eye_tissues <- grepl('Retina|RPE|Cornea', colnames(ref_tx_min_exp))
+keep <- rowSums(ref_tx_min_exp[,eye_tissues] > salmon_cut_off_lvl ) >0
+ref_tx_min_exp_eye <- ref_tx_min_exp[keep,]
+
+all_ref_exons <- filter(ref_gtf, type=='exon', transcript_id %in% ref_tx_min_exp_eye$transcript_id) %>% select(seqid, strand,start,end) %>% 
     mutate(seqid=as.character(seqid)) %>% distinct
 
 

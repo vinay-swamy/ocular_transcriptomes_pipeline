@@ -49,6 +49,12 @@ def tissue_to_bam(subtissue, sample_dict, bam_dir='/data/OGVFB_BG/STARbams_reali
             res.append(bam_dir+'{}/Sorted.out.bam'.format(sample))
     return(res)
 
+def output_for_mosdepth(sample_dict):
+    res=[]
+    for sample in sample_dict.keys():
+        res.append('coverage_files/{tissue}/{sampl}.regions.bed.gz'.format(tissue=sample_dict[sample]['subtissue'], sampl=sample))
+    return(res)
+
 def salmon_input(id,sample_dict,fql):
     paired=sample_dict[id]['paired']
     id= fql + 'fastq_files/' + id
@@ -80,6 +86,7 @@ gffcompare_version=config['gffcompare_version']
 hmmer_version=config['hmmer_version']
 crossmap_version=config['crossmap_version']
 deeptools_version=config['deeptools_version']
+mosdepth_version=config['mosdepth_version']
 #commonly used files
 working_dir=config['working_dir']
 STARindex='ref/STARindex'
@@ -94,7 +101,8 @@ rule all:
     input:'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata',\
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
      expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events),\
-     expand('bigwigs/{id}.bw', id=sample_names), expand('tissue_bigwigs/{tissue}.bw', tissue=subtissues)
+     #expand('bigwigs/{id}.bw', id=sample_names), expand('tissue_bigwigs/{tissue}.bw', tissue=subtissues),
+     output_for_mosdepth(sample_dict)
 
 '''
 ****PART 1**** download files and align to genome
@@ -278,7 +286,7 @@ rule liftOver_gff3:
 
 
 '''
-****PART 4**** rMATS
+****PART 4**** realign to stringtie gtf
 -the rmats shell script double bracket string thing works even though it looks wrong
 -updated STAR cmd to match rmats source
 - only running paired samples in rMATS
@@ -352,6 +360,11 @@ rule tisbam_to_bigwig:
         bamCoverage -p 4 -b {input} -o {output}
         '''
 
+'''
+PART 5 rMATS
+'''
+
+
 rule preprMats_running:
     input: expand('/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam',id=sample_names)
     params: bam_dir='/data/OGVFB_BG/STARbams_realigned/'
@@ -407,7 +420,7 @@ rule merge_all_events:
 
 
 '''
-PART 5 - quantify new transcripts, identify lowly used transcripts, and realign
+PART 6 - quantify new transcripts, identify lowly used transcripts, and realign
 '''
 
 rule build_salmon_index:
@@ -432,44 +445,42 @@ rule run_salmon:
         '''
 
 
-
-rule remove_low_used_tx:
-    input: fasta='results/combined_stringtie_tx.fa', q_files=expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names),
-        gtf=stringtie_full_gtf
-    output: removal_file='results/tx_for_removal.txt', new_fasta='results/combined_stringtie_tx_trimmed.fa'
-    shell:
-        '''
-        module load {R_version}
-        Rscript scripts/soneson_low_usage.R {working_dir} {input.gtf} {output.removal_file}
-        python3 scripts/filterFasta.py {input.fasta} {output.removal_file} {output.new_fasta}
-        '''
-
-rule rebuild_salmon_index:
-    input: 'results/combined_stringtie_tx_trimmed.fa'
-    output:'ref/salmonindex_st_trimmed'
-    shell:
-        '''
-        module load {salmon_version}
-        salmon index -t {input} --gencode -i {output} --type quasi --perfectHash -k 31
-        '''
-
-rule rerun_salmon:
-    input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
-        index='ref/salmonindex_st_trimmed'
-    params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql)
-    output: 'requant_files/{sampleID}/quant.sf'
-    shell:
-        '''
-        id={wildcards.sampleID}
-        module load {salmon_version}
-        salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o requant_files/$id
-        '''
-# requant path is hard coded in the script below, that probably should change
 rule aggregate_salmon_counts:
-    input: expand('requant_files/{sampleID}/quant.sf',sampleID=sample_names)
+    input: expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names)
     output: 'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata'
     shell:
         '''
         module load {R_version}
         Rscript scripts/makeCountTables.R {working_dir} {stringtie_full_gtf} {output}
+        '''
+'''
+part 7 analyze results
+'''
+rule determineNovelTranscripts:
+    input:'all_rmats_events_tissues.incLevels.tsv','results/all_rmats_events_tissues.medCounts.tsv' , 'results/salmon_gene_quant.Rdata', 'results/salmon_tx_quant.Rdata'
+    output: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/determineNovelTranscripts.R {working_dir} {stringtie_full_gtf} {sample_file} {input} {output}
+        '''
+
+rule makeBedforMosDepth:
+    input: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
+    output: 'results/novel_exon_ref_exon_comparison_table.Rdata', 'results/exons_for_coverage_analysis.bed'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/makeBedsForCoverageAnalysis.R {working_dir} {stringtie_full_gtf} {input} {output}
+        '''
+
+rule runMosDepth:
+    input:bed='results/exons_for_coverage_analysis.bed', bam='/data/OGVFB_BG/STARbams_realigned/{sample}/Sorted.out.bam'
+    output:'coverage_files/{tissue}/{sample}.regions.bed.gz'
+    shell:
+        '''
+        subtissue={wildcards.tissue}
+        sample={wildcards.sample}
+        module load {mosdepth_version}
+        mosdepth --by {input.bed} $subtissue/$sample {input.bam}
         '''

@@ -13,6 +13,7 @@ exon_bed_file <- args[6]
 
 setwd(working_dir)
 load(exon_info_file)
+load(salmon_count_file)
 salmon_cut_off_lvl <- 15
 gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file) %>% mutate(start=start-1)
 ref_gtf <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
@@ -80,17 +81,3 @@ complete_bed <- rbind(A3_All %>% filter(class=='long') %>% select(seqid, start=r
 save(A3_All,a5_new_longer_than_ref, nx_all, file = event_ls_file)
 write_tsv(complete_bed, exon_bed_file, col_names = F)
     
-
-    
-    
-    
-    
-
-
-
-
-
-
-
-
-

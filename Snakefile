@@ -49,10 +49,11 @@ def tissue_to_bam(subtissue, sample_dict, bam_dir='/data/OGVFB_BG/STARbams_reali
             res.append(bam_dir+'{}/Sorted.out.bam'.format(sample))
     return(res)
 
-def output_for_mosdepth(sample_dict):
+def output_for_mosdepth(sample_dict, tissue_list):
     res=[]
     for sample in sample_dict.keys():
-        res.append('coverage_files/{tissue}/{sampl}.regions.bed.gz'.format(tissue=sample_dict[sample]['subtissue'], sampl=sample))
+        if sample_dict[sample]['subtissue'] in tissue_list :
+            res.append('coverage_files/{tissue}/{sampl}.regions.bed.gz'.format(tissue=sample_dict[sample]['subtissue'], sampl=sample))
     return(res)
 
 def salmon_input(id,sample_dict,fql):
@@ -63,7 +64,6 @@ def salmon_input(id,sample_dict,fql):
     else:
         return('-r {}.fastq.gz'.format(id))
 
-#configfile:'config.yaml'
 #sample information
 sample_file=config['sampleFile']
 sample_dict=readSampleFile(config['sampleFile'])# sampleID:dict{path,paired,metadata}
@@ -74,6 +74,7 @@ with open(tissue_file) as tf, open(subtissue_file) as sf:
     subtissues= [line.strip('\n') for line in sf]
 sample_names=sample_dict.keys()
 rmats_events=['SE','RI','MXE','A5SS','A3SS']
+eye_tissues=['Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 'RPE_Adult.Tissue', 'RPE_Fetal.Tissue', 'Cornea_Adult.Tissue','Cornea_Fetal.Tissue']
 #software version info
 salmon_version=config['salmon_version']
 stringtie_version=config['stringtie_version']
@@ -102,7 +103,7 @@ rule all:
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
      expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events),\
      #expand('bigwigs/{id}.bw', id=sample_names), expand('tissue_bigwigs/{tissue}.bw', tissue=subtissues),
-     output_for_mosdepth(sample_dict)
+     output_for_mosdepth(sample_dict, eye_tissues)
 
 '''
 ****PART 1**** download files and align to genome
@@ -482,5 +483,5 @@ rule runMosDepth:
         subtissue={wildcards.tissue}
         sample={wildcards.sample}
         module load {mosdepth_version}
-        mosdepth --by {input.bed} $subtissue/$sample {input.bam}
+        mosdepth --by {input.bed} coverage_files/$subtissue/$sample {input.bam}
         '''

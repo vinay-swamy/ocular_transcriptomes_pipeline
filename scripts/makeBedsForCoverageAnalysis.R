@@ -78,6 +78,6 @@ complete_bed <- rbind(A3_All %>% filter(class=='long') %>% select(seqid, start=r
                       nx_all %>% select(seqid, start, end,id= ljid),
                       nx_all %>% select(seqid, start=ref_start,end=ref_end, id=ref_id),
                       stringsAsFactors=F)
-save(A3_All,a5_new_longer_than_ref, nx_all, file = event_ls_file)
+save(A3_All,a5_all, nx_all, file = event_ls_file)
 write_tsv(complete_bed, exon_bed_file, col_names = F)
     

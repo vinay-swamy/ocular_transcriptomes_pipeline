@@ -17,7 +17,7 @@ outfile_psi <- args[6]
 outfile_incCts <- args[7]
 setwd(working_dir)
 
-process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_raw,outfile_bin,outfile_multi){
+process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_psi){
     event_header <- list(SE.MATS.JC.txt=c('chr'	,'strand',	'exonStart_0base',	'exonEnd',	'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
                          RI.MATS.JC.txt=c('chr'	,'strand',	'riExonStart_0base',	'riExonEnd'	,'upstreamES'	,'upstreamEE'	,'downstreamES'	,'downstreamEE'),
                         MXE.MATS.JC.txt=c('chr',	'strand',	'1stExonStart_0base',	'1stExonEnd',	'2ndExonStart_0base',	'2ndExonEnd'	,'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
@@ -106,7 +106,5 @@ process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_r
 process_rmats_output(file = file,
                      event = event,
                      sample_file = sample_file,
-                     outfile_wide = outfile_wide,
-                     outfile_raw = outfile_raw,
-                     outfile_bin = outfile_bin,
-                     outfile_multi = outfile_multi)
+                     outfile_incCts = outfile_incCts,
+                     outfile_psi = outfile_psi)

@@ -48,6 +48,13 @@ process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_
 
     target_event<- read_tsv(file = event_file)
     sample_table <- read_tsv(file = sample_file, col_names = c('sample','run','paired','tissue','subtissue','origin'))
+    if( nrow(target_event)==0){
+        print('empty event file')
+        k=c('seqid','strand', 'start', 'end', 'Z')
+        writeLines(k, outfile_psi, sep='\t')
+        writeLines(k, outfile_incCts, sep='\t')
+        return(0)
+    }
     if(event == 'MXE.MATS.JC.txt'){
 
         # split into similar columns; the ijc sample1 is inclusion cts for 1st, sjc sample1 is for sample 2
@@ -72,17 +79,6 @@ process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_
         return(0)
 
     }
-    
-    
-    
-    if( nrow(target_event)==0){
-      print('empty event file')
-      k=c('seqid','strand', 'start', 'end', 'Z')
-      writeLines(k, outfile_psi, sep='\t')
-      writeLines(k, outfile_incCts, sep='\t')
-      return(0)
-    }
-
 
     countsCol<-c('IJC_SAMPLE_1','SJC_SAMPLE_1')
 

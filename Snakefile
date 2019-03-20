@@ -308,7 +308,7 @@ rule realign_STAR:
         index='ref/STARindex_stringtie',
         gtf=stringtie_full_gtf
     params: bam_dir='/data/OGVFB_BG/STARbams_realigned'
-    output:temp('/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam'), '/data/OGVFB_BG/STARbams_realigned/{id}/Log.final.out'
+    output:'/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam', '/data/OGVFB_BG/STARbams_realigned/{id}/Log.final.out'
     shell:
         '''
         bam_dir={params.bam_dir}
@@ -392,7 +392,7 @@ rule runrMATS:
 rule process_rmats_output:
     input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['wide','raw','bin','multi'])
+    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['incCts','PSI'])
     shell:
         '''
         module load {R_version}
@@ -400,7 +400,7 @@ rule process_rmats_output:
         '''
 
 rule combined_rmats_output:
-    input: expand('rmats_clean/{sub_tissue}/bin.{{event}}.MATS.JC.txt', sub_tissue=subtissues)
+    input: expand('rmats_clean/{sub_tissue}/{type}.{{event}}.MATS.JC.txt', sub_tissue=subtissues, type=['incCts','PSI'])
     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
     output:'results/complete_rmats_output/all_tissues.{event}.incLevel.tsv','results/complete_rmats_output/all_tissues.{event}.medCounts.tsv'
     shell:

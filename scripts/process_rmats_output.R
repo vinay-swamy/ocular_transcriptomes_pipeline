@@ -1,12 +1,12 @@
 library(tidyverse)
 
-args=c('~/NIH/eyeintegration_splicing/', 
-       'rmats_out/RPE_Adult.Tissue/MXE.MATS.JC.txt',
-       'MXE.MATS.JC.txt', 
-       'sampleTableV4.tsv', 
-       'RPE_Adult_tissue',
-       'rmats_clean/RPE_Adult.Tissue/psi.MXE.MATS.JC.txt',
-       'rmats_clean/RPE_Adult.Tissue/incCts.MXE.MATS.JC.txt')
+# args=c('~/NIH/eyeintegration_splicing/',
+#        'rmats_out/RPE_Adult.Tissue/RI.MATS.JC.txt',
+#        'RI.MATS.JC.txt',
+#        'sampleTableV4.tsv',
+#        'RPE_Adult_tissue',
+#        'rmats_clean/RPE_Adult.Tissue/psi.RI.MATS.JC.txt',
+#        'rmats_clean/RPE_Adult.Tissue/incCts.RI.MATS.JC.txt')
 args= commandArgs( trailingOnly = T)
 working_dir=args[1]
 event_file=args[2]
@@ -16,6 +16,7 @@ tissue <- args[5]
 outfile_psi <- args[6]
 outfile_incCts <- args[7]
 setwd(working_dir)
+
 
 process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_psi){
     event_header <- list(SE.MATS.JC.txt=c('chr'	,'strand',	'exonStart_0base',	'exonEnd',	'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
@@ -27,7 +28,7 @@ process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_
 
     dup_header  <- list(SE.MATS.JC.txt=c('chr'	,'strand',	'exonStart_0base',	'exonEnd'),
                         RI.MATS.JC.txt=c('chr'	,'strand',	'riExonStart_0base',	'riExonEnd'	),
-                       MXE.MATS.JC.txt=c('chr',	'strand',	'X1stExonStart_0base',	'X1stExonEnd',	'X2ndExonStart_0base',	'X2ndExonEnd'),
+                       MXE.MATS.JC.txt=c('chr',	'strand',	'X1stExonStart_0base',	'X1stExonEnd'),
                       A5SS.MATS.JC.txt=c('chr',	'strand',	'longExonStart_0base',	'longExonEnd'),
                       A3SS.MATS.JC.txt=c('chr',	'strand',	'longExonStart_0base',	'longExonEnd')
     )
@@ -85,7 +86,7 @@ process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_
 
     exon_cts <- lapply(countsCol,function(x)parse_count_info(target_event,x)) %>%do.call(cbind,.) %>% 
         {cbind(target_event[,event_header[[event]]], .) }%>%  
-        group_by(chr, strand, exonStart_0base, exonEnd) %>% 
+        group_by_(.dots = dup_header[[event]]) %>% 
         summarise(incCts=sum(med_IJC_SAMPLE_1),exclCts=sum(med_SJC_SAMPLE_1)) %>% 
         mutate(PSI=incCts/(incCts + exclCts)) %>% mutate(PSI=replace(PSI, is.nan(PSI),0))
 

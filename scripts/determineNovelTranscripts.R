@@ -1,17 +1,17 @@
 library(tidyverse)
 library(matrixStats)
 
-# args <- c('~/NIH/eyeintegration_splicing/',
-#           'results_b38/all_tissues.combined.gtf',
-#           'sampleTableV4.tsv',
-#           'results_b38/all_rmats_events_tissues.incLevels.tsv',
-#           'results_b38/all_rmats_events_tissues.medCounts.tsv',
-#           'rdata/salmon_no_ssn_gene_quant.Rdata',
-#           'rdata/salmon_no_ssn_tx_quant.Rdata',
-#           'results_b38/salmon_tissue_level_counts.Rdata',
-#           'results_b38/as_event_ls_class.Rdata')
+args <- c('~/NIH/eyeintegration_splicing/',
+          'results_b38/all_tissues.combined.gtf',
+          'sampleTableV4.tsv',
+          'results_b38/all_tissues.PSI.tsv',
+          'results_b38/all_tissues.incCts.tsv',
+          'rdata/salmon_no_ssn_gene_quant.Rdata',
+          'rdata/salmon_no_ssn_tx_quant.Rdata',
+          'results_b38/salmon_tissue_level_counts.Rdata',
+          'results_b38/as_event_ls_classV2.Rdata')
 
-args <- commandArgs(trailingOnly = T)
+#args <- commandArgs(trailingOnly = T)
 
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
@@ -25,12 +25,14 @@ exon_info_file <- args[9]
 
 
 
-event_header <- c('ljid', 'GeneID', 'seqid'	,'strand',	'start', 'end',	'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE')
+event_header <- c('ljid', 'seqid'	,'strand',	'start', 'end',	'event', 'length')
 gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file) %>% mutate(start=start-1)
-txid_2_oid <- filter(gfc_gtf, type=='transcript') %>% select(transcript_id, oId)
+txid_2_oid <- filter(gfc_gtf, type=='transcript') %>% select(transcript_id, oId, gene_id, gene_name)
 sample_table <- read_tsv(sample_table_file, col_names =c('sample','run','paired','tissue','subtissue','origin'))
-incTab <- read_tsv(incTab_file) %>% mutate(ljid =paste('rm', 1:nrow(.), sep = '_')) %>% select(ljid, everything(), -grep('synth', colnames(.)))
-medCounts <- read_tsv(medCts_file) %>% mutate(ljid =paste('rm', 1:nrow(.),sep = '_')) %>% select(ljid, everything(), -grep('synth', colnames(.)))
+incTab <- read_tsv(incTab_file) %>% mutate(ljid =paste('rm', 1:nrow(.), sep = '_'), length=end-start) %>% 
+    select(ljid,seqid, strand, start, end,event,length, everything())
+medCounts <- read_tsv(medCts_file) %>% mutate(ljid =paste('rm', 1:nrow(.),sep = '_'),length=end-start) %>% 
+    select(ljid,seqid, strand, start, end,event,length, everything())
 load(salmon_tx_quant)
 load(salmon_gene_quant)
 
@@ -48,24 +50,30 @@ med_tx_counts <- make_tissue_level_counts(sample_table, tx_counts) %>% as.data.f
 med_gene_counts <- make_tissue_level_counts(sample_table, gene_counts) %>% as.data.frame %>% mutate(GeneID=gene_counts$gene_id) %>% 
     select(GeneID, everything(), -grep('synth', colnames(.)))
 save(med_tx_counts, med_gene_counts, file = tissue_level_counts)
-#####first, filter out salmon counts and rmats counts based on expression
-#set medct levels at 25, seems like its a reasonable level, and salmon level to 15,based on looking at expression quantiles,
-# also going to reduce the inc levle cuttoff to .5, at least for this list
-txid_2_oid <- filter(gfc_gtf, type=='transcript') %>% select(transcript_id, oId)
+###########################################################################
+count_distributions <- medCounts %>% select(-event_header) %>% apply(2, function(x) quantile(x, seq(0,1,.1))) %>% t
+length_distribution <- medCounts %>% pull(length) %>% quantile( seq(0,1,.1))
+# seems like a threshold of counts >.25 might be good enough to remove out noise - .25 is ~top 25% of expression for each sample
+# which is about what it was at before I length scaled the counts
+# based on this paper https://link.springer.com/article/10.1007%2Fs10709-007-9139-4 exons are not super big, so i think 
+# removing exons longer than 1500 bp should be more than enough
+medcts_cut_off_lvl <- .25
 salmon_cut_off_lvl <- 15
-medcts_cut_off_lvl <- 25
-#inc_cut_off_lvl=.5 lets just ignore inc levels entirely for now
-# stringtie expressed in any tissue
+
 expressed_in_any_tissue <-  rowSums(med_tx_counts[,-1] > salmon_cut_off_lvl) >0
 stringtie_min_exp <- med_tx_counts[expressed_in_any_tissue,]
 stringtie_novel_min_exp <- filter(txid_2_oid,grepl('MSTRG',oId)) %>% pull(transcript_id) %>% 
     {filter(stringtie_min_exp, transcript_id %in% .)}
-#rmats rminimally expressed
-nc_cols <- c('ljid',event_header,'event_type')
-mat=medCounts%>%select(-nc_cols)
-highly_expressed_exons <- rowSums(mat > medcts_cut_off_lvl) >0
-rmats_minimally_expressed<- medCounts[highly_expressed_exons,]
 
+mat <- select(medCounts, -event_header)
+keep_cts <- rowSums(mat > medcts_cut_off_lvl) >0
+medCounts_filter <- medCounts[keep_cts,]
+keep_len <- medCounts_filter$length >1500
+rmats_minimally_expressed <- medCounts_filter[!keep_len,]
+
+rm <- select(rmats_minimally_expressed, seqid, strand, start, end, ljid)
+st <- filter(gfc_gtf, transcript_id %in% stringtie_min_exp$transcript_id, type == 'exon') %>%  select(seqid, strand, start, end) %>% distinct
+k <- anti_join(rm, st) %>% pull(ljid) %>% {filter(rmats_minimally_expressed, ljid %in% .)}
 
 #####Second, determine which exons have been identified as novel; break these down further to reclassify events 
 
@@ -74,18 +82,30 @@ rmats_minimally_expressed<- medCounts[highly_expressed_exons,]
 all_ref_exons <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
                     {filter(gfc_gtf, transcript_id %in% . , type=='exon')} %>% select(seqid, strand,start,end) %>% 
     mutate(seqid=as.character(seqid))
-ref_exon_full <- split(all_ref_exons[,-1], 1:nrow(all_ref_exons))
+ref_exon_full <- split(all_ref_exons, 1:nrow(all_ref_exons))
 
 # next, create a set of exons with some level of novelty
 all_novel_exons <- filter(gfc_gtf, transcript_id %in% stringtie_novel_min_exp$transcript_id, type=='exon')  %>% 
-    select( seqid, strand,start,end)
-all_novel_exon_list <- split(all_novel_exons[,-1], 1:nrow(all_novel_exons))
+    select(seqid, strand,start,end) %>% mutate(seqid=as.character(seqid))
+all_novel_exon_list <- split(all_novel_exons, 1:nrow(all_novel_exons))
 novel <- !all_novel_exon_list%in%ref_exon_full
-
-#this table is all novel exons
 novel_string_tie_exons <- all_novel_exons[novel,] %>% distinct %>% mutate(is.novel=T)
 #this is all "novel" exons that were detected in rmats
+
+###It would be a good idea to record the  tx/exon that are in string tie and not in rmats, and look have a separate evaluation with
+### different criteria, doing the same for rmats.
+##############
+novel_st_exons_NOT_in_rmats <- anti_join(novel_string_tie_exons, rmats_minimally_expressed) %>%
+    left_join(select(gfc_gtf, transcript_id, seqid, strand, start, end))
+st <- filter(gfc_gtf, transcript_id %in% stringtie_min_exp$transcript_id, type == 'exon') %>%  select(seqid, strand, start, end) %>% distinct
+rmats_exons_NOT_in_st <- anti_join(rmats_minimally_expressed,st)
+save(desc,novel_st_exons_NOT_in_rmats, rmats_exons_NOT_in_st, file = 'results_b38/novel_exons_not_agreeing.Rdata')
+rm(desc,novel_st_exons_NOT_in_rmats, rmats_exons_NOT_in_st)
+##############
+
+
 novel_st_exons_in_rmats <- inner_join(novel_string_tie_exons, rmats_minimally_expressed, by=c('seqid','strand', 'start','end'))
+
 # now lets break these down a little more
 ref_exon_starts <- split(all_ref_exons%>%select(seqid,strand, start), 1:nrow(all_ref_exons))
 ref_exon_ends <- split(all_ref_exons%>%select(seqid,strand, end),1:nrow(all_ref_exons)) 
@@ -104,8 +124,8 @@ novel_st_exons_in_rmats <- novel_st_exons_in_rmats %>%
     mutate(reclassified_event= case_when(fully_novel_exons ~ "novel_exon",
                                          a3ss_novel_exons ~ "A3SS",
                                          a5ss_novel_exons ~ "A5SS",
-                                         ri_novel_exons ~ "RI")) %>% 
-    inner_join(select(gfc_gtf, transcript_id, seqid, strand, start, end))
+                                         ri_novel_exons ~ "RI"))%>% 
+    inner_join(select(gfc_gtf, transcript_id, seqid, strand, start, end)) %>% select(event_header, transcript_id, reclassified_event, everything())
 
 
 
@@ -131,12 +151,12 @@ gtf_se<- left_join(gfc_gtf, select(novel_string_tie_exons, seqid, strand, start,
                    by=c('seqid','strand' ,'start','end')) %>%
     mutate(is.novel=replace(is.novel, is.na(is.novel), F))
 skipped_exon_tx <- filter(gtf_se, grepl('MSTRG', oId)) %>% pull(transcript_id) %>% 
-{filter(gtf_se, transcript_id %in% .)} %>% group_by(transcript_id) %>% summarise(no_new_exon=all(!is.novel)) %>%
+    {filter(gtf_se, transcript_id %in% .)} %>% group_by(transcript_id) %>% summarise(no_new_exon=all(!is.novel)) %>%
     filter(no_new_exon)
 
 
 
-nc_col_order=c(colnames(novel_st_exons_in_rmats_eye)[1:12],'event_type', 'reclassified_event')
+nc_col_order=colnames(novel_st_exons_in_rmats_eye)[1:10]
 nx_med_cts_eye <- novel_st_exons_in_rmats_eye %>% select(nc_col_order, everything())
 nx_incLvl_eye <- inner_join( nx_med_cts_eye%>%select(transcript_id, reclassified_event, is.novel, ljid ), incTab) %>% 
     select(nc_col_order, everything())
@@ -151,6 +171,6 @@ gtf_annotated <- left_join(gfc_gtf, select(novel_st_exons_in_rmats_eye, seqid, s
 gtf_novel_exon_anno <- filter(gtf_annotated, transcript_id %in% nx_tx_skipped_exon_tx_eye$transcript_id | 
                                              transcript_id%in% nx_med_cts_eye$transcript_id)
 write_tsv(gtf_novel_exon_anno, 'novel_exon_gtf.tsv')
-save(nx_incLvl_eye, nx_med_cts_eye, nx_tx_exp_eye, nx_tx_skipped_exon_tx_eye, gtf_novel_exon_anno, file = exon_info_file)
+save(nx_incLvl_eye, nx_med_cts_eye, nx_tx_exp_eye, nx_tx_skipped_exon_tx_eye, gtf_novel_exon_anno, gtf_annotated, file = exon_info_file)
 
 #rtracklayer::readGFF('ref/gencodeGFF3.gff') %>% as.data.frame %>% write_tsv('ref/gencodeGFF3.gff.tsv')

@@ -13,8 +13,8 @@ event_file=args[2]
 event= args[3]
 sample_file <- args[4]
 tissue <- args[5]
-outfile_psi <- args[6]
-outfile_incCts <- args[7]
+outfile_incCts <- args[6]
+outfile_psi <- args[7]
 setwd(working_dir)
 
 

@@ -367,7 +367,7 @@ PART 5 rMATS
 
 
 rule preprMats_running:
-    input: expand('/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam',id=sample_names)
+    input: expand('/data/OGVFB_BG/STARbams_realigned/{id}/Sorted.out.bam',id=sample_names)
     params: bam_dir='/data/OGVFB_BG/STARbams_realigned/'
     output:expand('ref/rmats_locs/{tissue}.rmats.txt',tissue=subtissues)
     shell:

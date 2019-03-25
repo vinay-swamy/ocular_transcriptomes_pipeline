@@ -1,7 +1,10 @@
 library(tidyverse)
-# args=c('~/NIH/eyeintegration_splicing/', 'results_b38/all_tissues.combined.gtf', 
-#        'all_novel_exon_info.Rdata','results_b38/salmon_tissue_level_counts.Rdata',  'results_b38/as_event_ls_class.Rdata',
-#        '/Volumes/data/eyeintegration_splicing/results/exons_for_cov_alys.bed')
+args=c('~/NIH/eyeintegration_splicing/', 
+       'results_b38/all_tissues.combined.gtf',
+       'results_b38/salmon_tissue_level_counts.Rdata',  
+       'results_b38/all_novel_exon_infoV2.Rdata',
+       'results_b38/as_event_ls_class.Rdata',
+       '/Volumes/data/eyeintegration_splicing/results/exons_for_cov_analysis_rpe.bed')
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
@@ -9,27 +12,34 @@ salmon_count_file <- args[3]
 exon_info_file <- args[4]
 event_ls_file <- args[5]
 exon_bed_file <- args[6]
-
+tissue <- 'RPE_Fetal.Tissue'
 
 setwd(working_dir)
 load(exon_info_file)
 load(salmon_count_file)
 salmon_cut_off_lvl <- 15
+rmats_cut_off_lvl <- .25
 gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file) %>% mutate(start=start-1)
 ref_gtf <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
-{filter(gfc_gtf, transcript_id %in% . )} 
+    {filter(gfc_gtf, transcript_id %in% . )} 
 ref_tx_min_exp <- filter(med_tx_counts, transcript_id%in% ref_gtf$transcript_id)
-eye_tissues <- grepl('Retina|RPE|Cornea', colnames(ref_tx_min_exp))
-keep <- rowSums(ref_tx_min_exp[,eye_tissues] > salmon_cut_off_lvl ) >0
-ref_tx_min_exp_eye <- ref_tx_min_exp[keep,]
+eye_tissues <- grepl(tissue, colnames(ref_tx_min_exp))
+keep <- ref_tx_min_exp[,eye_tissues] > salmon_cut_off_lvl 
+ref_tx_min_exp_rpe <- ref_tx_min_exp[keep,]
 
-all_ref_exons <- filter(ref_gtf, type=='exon', transcript_id %in% ref_tx_min_exp_eye$transcript_id) %>% select(seqid, strand,start,end) %>% 
+eye_tissues <- grepl(tissue, colnames(nx_med_cts_eye))
+keep <- nx_med_cts_eye[,eye_tissues] > rmats_cut_off_lvl
+nx_med_cts_rpe <- nx_med_cts_eye[keep,]
+
+
+
+all_ref_exons <- filter(ref_gtf, type=='exon', transcript_id %in% ref_tx_min_exp_rpe$transcript_id) %>% select(seqid, strand,start,end) %>% 
     mutate(seqid=as.character(seqid)) %>% distinct
 
 
 #? is it better to use all ref exons, (even ones not expresed in eye) and then take the exon that creates the longest coverage between
 ###A3SS and RI's :  we can treat RI's as a3ss in practice as they stradle known exons, and we assume that knownn exons will be covered the sameish
-df <- filter(nx_med_cts_eye, reclassified_event=='A3SS' | reclassified_event == 'RI') %>% 
+df <- filter(nx_med_cts_rpe, reclassified_event=='A3SS' | reclassified_event == 'RI') %>% 
     select(ljid,reclassified_event,seqid, strand, start, new_end=end) %>% 
     distinct %>% unite(spl,seqid,strand,start, remove = F)
 A3_new_longer_than_ref <- inner_join(df, all_ref_exons %>% rename(ref_end=end)) %>% 
@@ -43,7 +53,7 @@ A3_All <- filter(df, !spl%in%A3_new_longer_than_ref$spl) %>%
     mutate(class='short') %>% rbind(A3_new_longer_than_ref) %>% mutate(ref_id=paste('A3SS', 1:nrow(.), sep = '_'))
 #write A3 all
 ###A5SS
-df <- filter(nx_med_cts_eye, reclassified_event=='A5SS') %>% select(ljid, reclassified_event, seqid, strand, new_start=start, end) %>% 
+df <- filter(nx_med_cts_rpe, reclassified_event=='A5SS') %>% select(ljid, reclassified_event, seqid, strand, new_start=start, end) %>% 
     distinct %>% unite(spl,seqid,strand,end, remove = F)
 
 a5_new_longer_than_ref <- inner_join(df, all_ref_exons %>% rename(ref_start=start)) %>% 
@@ -56,7 +66,7 @@ a5_all <-filter(df, !spl%in%a5_new_longer_than_ref$spl) %>%
     arrange(desc(delta)) %>% filter(!duplicated(spl)) %>%
     mutate(class='short') %>% rbind(a5_new_longer_than_ref) %>% mutate(ref_id=paste('A5SS', 1:nrow(.), sep = '_'))
 #### novel exons
-df <- filter(nx_med_cts_eye, reclassified_event=='novel_exon') %>% select(ljid, seqid, strand,start,end, reclassified_event) %>% 
+df <- filter(nx_med_cts_rpe, reclassified_event=='novel_exon') %>% select(ljid, seqid, strand,start,end, reclassified_event) %>% 
     distinct %>% rbind(., all_ref_exons%>%mutate(ljid='.', reclassified_event='ref'))     %>% 
     mutate(reclassified_event=replace_na(reclassified_event, 'ref'),ljid=replace_na(ljid,'.')) %>% arrange(start)
 

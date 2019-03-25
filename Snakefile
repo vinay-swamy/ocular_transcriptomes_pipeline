@@ -101,7 +101,7 @@ chain_file=config['chain_file']
 rule all:
     input:'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata',\
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
-     expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events),\
+     expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']),\
      #expand('bigwigs/{id}.bw', id=sample_names), expand('tissue_bigwigs/{tissue}.bw', tissue=subtissues),
      output_for_mosdepth(sample_dict, eye_tissues)
 
@@ -308,7 +308,7 @@ rule realign_STAR:
         index='ref/STARindex_stringtie',
         gtf=stringtie_full_gtf
     params: bam_dir='/data/OGVFB_BG/STARbams_realigned'
-    output:temp('/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam'), '/data/OGVFB_BG/STARbams_realigned/{id}/Log.final.out'
+    output:'/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam', '/data/OGVFB_BG/STARbams_realigned/{id}/Log.final.out'
     shell:
         '''
         bam_dir={params.bam_dir}
@@ -367,7 +367,7 @@ PART 5 rMATS
 
 
 rule preprMats_running:
-    input: expand('/data/OGVFB_BG/STARbams_realigned/{id}/Aligned.out.bam',id=sample_names)
+    input: expand('/data/OGVFB_BG/STARbams_realigned/{id}/Sorted.out.bam',id=sample_names)
     params: bam_dir='/data/OGVFB_BG/STARbams_realigned/'
     output:expand('ref/rmats_locs/{tissue}.rmats.txt',tissue=subtissues)
     shell:
@@ -392,7 +392,7 @@ rule runrMATS:
 rule process_rmats_output:
     input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['wide','raw','bin','multi'])
+    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['incCts','PSI'])
     shell:
         '''
         module load {R_version}
@@ -400,25 +400,13 @@ rule process_rmats_output:
         '''
 
 rule combined_rmats_output:
-    input: expand('rmats_clean/{sub_tissue}/bin.{{event}}.MATS.JC.txt', sub_tissue=subtissues)
-    params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-    output:'results/complete_rmats_output/all_tissues.{event}.incLevel.tsv','results/complete_rmats_output/all_tissues.{event}.medCounts.tsv'
+    input: expand('rmats_clean/{sub_tissue}/{{type}}.{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
+    output: 'results/all_tissues.{type}.tsv'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/combine_rmats_output.R {working_dir} {params.event} {output}
+        Rscript scripts/combine_rmats_output.R {working_dir} {wildcards.type} {output}
         '''
-rule merge_all_events:
-    input: expand('results/complete_rmats_output/all_tissues.{event}.incLevel.tsv', event=rmats_events)
-    output: 'results/all_rmats_events_tissues.medCounts.tsv' ,'all_rmats_events_tissues.incLevels.tsv'
-    shell:
-        '''
-        module load {R_version}
-        Rscript scripts/makeAllEventsTable.R {working_dir} {output}
-        '''
-
-
-
 
 '''
 PART 6 - quantify new transcripts, identify lowly used transcripts, and realign
@@ -445,7 +433,6 @@ rule run_salmon:
         salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o quant_files/$id
         '''
 
-
 rule aggregate_salmon_counts:
     input: expand('quant_files/{sampleID}/quant.sf',sampleID=sample_names)
     output: 'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata'
@@ -458,7 +445,7 @@ rule aggregate_salmon_counts:
 part 7 analyze results
 '''
 rule determineNovelTranscripts:
-    input:'all_rmats_events_tissues.incLevels.tsv','results/all_rmats_events_tissues.medCounts.tsv' , 'results/salmon_gene_quant.Rdata', 'results/salmon_tx_quant.Rdata'
+    input:expand('results/all_tissues.{type}.tsv', type=['incCts','PSI'])
     output: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
     shell:
         '''

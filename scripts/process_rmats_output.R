@@ -1,101 +1,107 @@
 library(tidyverse)
-#args=c('rmats_out/RPE_Adult.Tissue/A3SS.MATS.JC.txt','A3SS.MATS.JC.txt', 'test_raw.tsv ','test_bin.tsv',
-#       'test_multi.tsv')
+
+# args=c('~/NIH/eyeintegration_splicing/',
+#        'rmats_out/RPE_Adult.Tissue/RI.MATS.JC.txt',
+#        'RI.MATS.JC.txt',
+#        'sampleTableV4.tsv',
+#        'RPE_Adult_tissue',
+#        'rmats_clean/RPE_Adult.Tissue/psi.RI.MATS.JC.txt',
+#        'rmats_clean/RPE_Adult.Tissue/incCts.RI.MATS.JC.txt')
 args= commandArgs( trailingOnly = T)
 working_dir=args[1]
-file= args[2]
+event_file=args[2]
 event= args[3]
 sample_file <- args[4]
 tissue <- args[5]
-outfile_wide <- args[6]
-outfile_raw <-args[7]
-outfile_bin <- args[8]
-outfile_multi <- args[9]
+outfile_incCts <- args[6]
+outfile_psi <- args[7]
 setwd(working_dir)
 
-process_rmats_output <- function(file,event,sample_file, outfile_wide, outfile_raw,outfile_bin,outfile_multi){
+
+process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_psi){
     event_header <- list(SE.MATS.JC.txt=c('chr'	,'strand',	'exonStart_0base',	'exonEnd',	'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
-                           RI.MATS.JC.txt=c('chr'	,'strand',	'riExonStart_0base',	'riExonEnd'	,'upstreamES'	,'upstreamEE'	,'downstreamES'	,'downstreamEE'),
-                           MXE.MATS.JC.txt=c('chr',	'strand',	'1stExonStart_0base',	'1stExonEnd',	'2ndExonStart_0base',	'2ndExonEnd'	,'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
-                           A5SS.MATS.JC.txt=c('chr',	'strand',	'longExonStart_0base',	'longExonEnd',	'shortES',	'shortEE',	'flankingES',	'flankingEE'),
-                           A3SS.MATS.JC.txt=c('chr',	'strand',	'longExonStart_0base',	'longExonEnd'	,'shortES',	'shortEE'	,'flankingES',	'flankingEE')
+                         RI.MATS.JC.txt=c('chr'	,'strand',	'riExonStart_0base',	'riExonEnd'	,'upstreamES'	,'upstreamEE'	,'downstreamES'	,'downstreamEE'),
+                        MXE.MATS.JC.txt=c('chr',	'strand',	'1stExonStart_0base',	'1stExonEnd',	'2ndExonStart_0base',	'2ndExonEnd'	,'upstreamES',	'upstreamEE',	'downstreamES',	'downstreamEE'),
+                       A5SS.MATS.JC.txt=c('chr',	'strand',	'longExonStart_0base',	'longExonEnd',	'shortES',	'shortEE',	'flankingES',	'flankingEE'),
+                       A3SS.MATS.JC.txt=c('chr',	'strand',	'longExonStart_0base',	'longExonEnd'	,'shortES',	'shortEE'	,'flankingES',	'flankingEE')
     )
 
     dup_header  <- list(SE.MATS.JC.txt=c('chr'	,'strand',	'exonStart_0base',	'exonEnd'),
-                      RI.MATS.JC.txt=c('chr'	,'strand',	'riExonStart_0base',	'riExonEnd'	),
-                      MXE.MATS.JC.txt=c('chr',	'strand',	'X1stExonStart_0base',	'X1stExonEnd',	'X2ndExonStart_0base',	'X2ndExonEnd'),
+                        RI.MATS.JC.txt=c('chr'	,'strand',	'riExonStart_0base',	'riExonEnd'	),
+                       MXE.MATS.JC.txt=c('chr',	'strand',	'X1stExonStart_0base',	'X1stExonEnd'),
                       A5SS.MATS.JC.txt=c('chr',	'strand',	'longExonStart_0base',	'longExonEnd'),
                       A3SS.MATS.JC.txt=c('chr',	'strand',	'longExonStart_0base',	'longExonEnd')
     )
 
 
     parse_count_info <- function(df,col){
+        
+        len <- ifelse(grepl('IJC', col),'IncFormLen','SkipFormLen') %>% {pull(df, .)}
         t_cols <- pull(df, col) %>% lapply(function(x) strsplit(x,',')%>%unlist%>%as.numeric) #%>% unlist # %>%as.numeric
         flattened_counts <- lapply(t_cols, function(x){x[is.na(x)] <- 0; x})
-        t_mean <- sapply(flattened_counts, mean)
-        t_median <- sapply(flattened_counts,median)
-        t_sd <-  sapply(flattened_counts,sd)
-        final <- data.frame(t_mean,t_median,t_sd)
-        colnames(final) <- paste(col,c('avg','med','sd'),sep = '_')
+        t_median <- sapply(flattened_counts,median) / len
+        final <- data.frame(t_median)
+        colnames(final) <- paste('med', col , sep = '_')
         return(final)
     }
 
-    make_wide_table <- function(df,col,samp_tab, t_tissue){
-        t_col <- pull(df,col)
-        wide_df <- lapply(t_col, function(x) strsplit(x,',')%>%unlist%>%as.numeric) %>%
-            do.call(rbind,.) %>% as.data.frame
-        if(grepl('2',col)){
-            colnames(wide_df) <- filter(samp_tab, tissue=='synth',paired=='y') %>% pull (sample) %>% paste(col,sep='_')
-            return(wide_df)
-        }
-        colnames(wide_df) <- filter(samp_tab, tissue==t_tissue,paired=='y') %>% pull (sample) %>% paste(col,sep='_')
-        wide_df
 
-    }
 
-    target_event <- read_tsv(file = file)
+    target_event<- read_tsv(file = event_file)
     sample_table <- read_tsv(file = sample_file, col_names = c('sample','run','paired','tissue','subtissue','origin'))
-
     if( nrow(target_event)==0){
-      print('empty event file')
-      k=colnames(target_event)
-      writeLines(k, outfile_wide, sep='\t')
-      writeLines(k, outfile_raw, sep='\t')
-      writeLines(k, outfile_bin, sep='\t')
-      writeLines(k, outfile_multi, sep='\t')
-      return(0)
+        print('empty event file')
+        k=c('seqid','strand', 'start', 'end', 'Z')
+        writeLines(k, outfile_psi, sep='\t')
+        writeLines(k, outfile_incCts, sep='\t')
+        return(0)
+    }
+    if(event == 'MXE.MATS.JC.txt'){
+
+        # split into similar columns; the ijc sample1 is inclusion cts for 1st, sjc sample1 is for sample 2
+        exon_1 <- select(target_event, chr, strand,`1stExonStart_0base`, `1stExonEnd`, IJC_SAMPLE_1, IncFormLen) %>% 
+            {mutate(.,med_IJC_SAMPLE_1=parse_count_info(.,'IJC_SAMPLE_1')[,1] / IncFormLen, 
+                        IJC_SAMPLE_1=NULL,IncFormLen=NULL, med_SJC_SAMPLE_1=0)}
+        #yeah this looks real fuckin weird but its right - going to say that each mxe exon is used 100% of the time
+        # and since the SJC_sample 1 counts are for the 2nd exon, 
+        exon_2 <- select(target_event, chr, strand,`2ndExonStart_0base`, `2ndExonEnd`, SJC_SAMPLE_1, SkipFormLen) %>% 
+            {mutate(.,med_IJC_SAMPLE_1=parse_count_info(.,'SJC_SAMPLE_1')[,1] / SkipFormLen, 
+                        SJC_SAMPLE_1=NULL,SkipFormLen=NULL, med_SJC_SAMPLE_1=0 )}
+        colnames(exon_1) <- colnames(exon_2) <- c('seqid', 'strand','start','end','med_IJC_SAMPLE_1', 'med_SJC_SAMPLE_1')
+        
+        exon_cts <- rbind(exon_1, exon_2, stringsAsFactors=F) %>% group_by(seqid,strand, start, end) %>%  
+            summarise(incCts=sum(med_IJC_SAMPLE_1)) %>% mutate(PSI=1)
+        incLvl <- select(exon_cts, -incCts)
+        colnames(incLvl) <- c('seqid','strand', 'start', 'end', paste(tissue, 'PSI',sep = '_'))
+        medCts <- select(exon_cts, -PSI)
+        colnames(medCts) <- c('seqid','strand', 'start', 'end', paste(tissue, 'incCts',sep = '_'))
+        write_tsv(incLvl, outfile_psi)
+        write_tsv(medCts, outfile_incCts)
+        return(0)
+
     }
 
-    counts_long <- lapply(c('IJC_SAMPLE_1','IJC_SAMPLE_2'),function(x) make_wide_table(target_event,x,sample_table,tissue)) %>%
-         c(target_event[,event_header[[event]]],.) %>% do.call(cbind,.)
-    countsCol<-c('IJC_SAMPLE_1','SJC_SAMPLE_1','IJC_SAMPLE_2','SJC_SAMPLE_2',"IncLevel1","IncLevel2")
-    write_tsv(counts_long,outfile_wide)
+    countsCol<-c('IJC_SAMPLE_1','SJC_SAMPLE_1')
 
 
-    procd_cols <- lapply(countsCol,function(x)parse_count_info(target_event,x)) %>%do.call(cbind,.)
-    pvals <- mutate(target_event, PValue=replace(PValue, PValue==0,2.2e-16), FDR=replace(FDR,FDR==0,2.2e-16)) %>%
-        select(PValue, FDR)
-    out_df <- data.frame(select(target_event,c("GeneID","geneSymbol",event_header[[event]])),
-                         procd_cols,
-                         pvals)
-    write_tsv(out_df, outfile_raw)
+    exon_cts <- lapply(countsCol,function(x)parse_count_info(target_event,x)) %>%do.call(cbind,.) %>% 
+        {cbind(target_event[,event_header[[event]]], .) }%>%  
+        group_by_(.dots = dup_header[[event]]) %>% 
+        summarise(incCts=sum(med_IJC_SAMPLE_1),exclCts=sum(med_SJC_SAMPLE_1)) %>% 
+        mutate(PSI=incCts/(incCts + exclCts)) %>% mutate(PSI=replace(PSI, is.nan(PSI),0))
 
-    out_df <- filter(out_df, IJC_SAMPLE_1_med > 10) # sample 1 is our target sample, keep ex-juncs with more than 10 counts
-    k <- select(out_df, dup_header[[event]])
-    dups <- k[duplicated(k),]
-    dup_list <- split(dups,1:nrow(dups))
-    exon_list <- split(k, 1:nrow(k))
-    bool <- exon_list%in%dup_list
-    uniq_exons <- out_df[!bool,]
-    duped_exons <- out_df[bool,]
-    write_tsv(uniq_exons,outfile_bin)
-    write_tsv(duped_exons,outfile_multi)
+    incLvl <- select(exon_cts, dup_header[[event]], PSI)
+    colnames(incLvl) <- c('seqid','strand', 'start', 'end', paste(tissue, 'PSI',sep = '_'))
+    medCts <- select(exon_cts, dup_header[[event]], incCts)
+    colnames(medCts) <- c('seqid','strand', 'start', 'end', paste(tissue, 'incCts',sep = '_'))
+    
+    write_tsv(incLvl, outfile_psi)
+    write_tsv(medCts, outfile_incCts)
+
 }
 
 process_rmats_output(file = file,
                      event = event,
                      sample_file = sample_file,
-                     outfile_wide = outfile_wide,
-                     outfile_raw = outfile_raw,
-                     outfile_bin = outfile_bin,
-                     outfile_multi = outfile_multi)
+                     outfile_incCts = outfile_incCts,
+                     outfile_psi = outfile_psi)

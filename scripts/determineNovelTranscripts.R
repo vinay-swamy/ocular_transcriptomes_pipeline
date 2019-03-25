@@ -11,7 +11,7 @@ args <- c('~/NIH/eyeintegration_splicing/',
           'results_b38/salmon_tissue_level_counts.Rdata',
           'results_b38/as_event_ls_classV2.Rdata')
 
-#args <- commandArgs(trailingOnly = T)
+#cargs <- commandArgs(trailingOnly = T)
 
 working_dir <- args[1]
 gfc_gtf_file <- args[2]

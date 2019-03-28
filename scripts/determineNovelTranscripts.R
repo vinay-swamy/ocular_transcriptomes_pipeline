@@ -1,18 +1,17 @@
 library(tidyverse)
 library(matrixStats)
 
-args <- c('~/NIH/eyeintegration_splicing/',
-          'results_b38/all_tissues.combined.gtf',
-          'sampleTableV4.tsv',
-          'results_b38/all_tissues.PSI.tsv',
-          'results_b38/all_tissues.incCts.tsv',
-          'rdata/salmon_no_ssn_gene_quant.Rdata',
-          'rdata/salmon_no_ssn_tx_quant.Rdata',
-          'results_b38/salmon_tissue_level_counts.Rdata',
-          'results_b38/as_event_ls_classV2.Rdata')
+# args <- c('~/NIH/eyeintegration_splicing/',
+#          'results/all_tissues.combined.gtf',
+#          'sampleTableV4.tsv',
+#          'bad_run/all_tissues.PSI.tsv',
+#          'bad_run/all_tissues.incCts.tsv',
+#          'results/salmon_gene_quant.Rdata',
+#          'results/salmon_tx_quant.Rdata',
+#          'bad_run/salmon_tissue_level_counts.Rdata',
+#          'bad_run/as_event_ls_classV2.Rdata')
 
-#cargs <- commandArgs(trailingOnly = T)
-
+args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
 sample_table_file <- args[3]
@@ -79,9 +78,14 @@ k <- anti_join(rm, st) %>% pull(ljid) %>% {filter(rmats_minimally_expressed, lji
 
 
 # create a set of reference exons by selecting all exons from reference transcripts.    
-all_ref_exons <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
-                    {filter(gfc_gtf, transcript_id %in% . , type=='exon')} %>% select(seqid, strand,start,end) %>% 
+# all_ref_exons_st <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
+# {filter(gfc_gtf, transcript_id %in% . , type=='exon')} %>% select(seqid, strand,start,end) %>% distinct %>% 
+#   mutate(seqid=as.character(seqid))
+
+
+all_ref_exons <-  rtracklayer::readGFF('ref/gencodeAno_comp.gtf') %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid))
+#all_ref_exons <- rbind(all_ref_exons_gc, all_ref_exons_st) %>% mutate(seqid=as.character(seqid), strand=as.character(strand)) %>% distinct
 ref_exon_full <- split(all_ref_exons, 1:nrow(all_ref_exons))
 
 # next, create a set of exons with some level of novelty
@@ -99,7 +103,7 @@ novel_st_exons_NOT_in_rmats <- anti_join(novel_string_tie_exons, rmats_minimally
     left_join(select(gfc_gtf, transcript_id, seqid, strand, start, end))
 st <- filter(gfc_gtf, transcript_id %in% stringtie_min_exp$transcript_id, type == 'exon') %>%  select(seqid, strand, start, end) %>% distinct
 rmats_exons_NOT_in_st <- anti_join(rmats_minimally_expressed,st)
-save(desc,novel_st_exons_NOT_in_rmats, rmats_exons_NOT_in_st, file = 'results_b38/novel_exons_not_agreeing.Rdata')
+save(desc,novel_st_exons_NOT_in_rmats, rmats_exons_NOT_in_st, file = 'results/novel_exons_not_agreeing.Rdata')
 rm(desc,novel_st_exons_NOT_in_rmats, rmats_exons_NOT_in_st)
 ##############
 
@@ -118,13 +122,14 @@ fully_novel_exons <- (!nv_ex_start%in%ref_exon_starts) & (!nv_ex_end%in%ref_exon
 a3ss_novel_exons <-  (nv_ex_start%in%ref_exon_starts) & (!nv_ex_end%in%ref_exon_ends)# a3ss novel exon has a known start, new end
 a5ss_novel_exons <- (!nv_ex_start%in%ref_exon_starts) & (nv_ex_end%in%ref_exon_ends)# a5ss novel eoxn has new start, known end
 ri_novel_exons <- (nv_ex_start%in%ref_exon_starts) & (nv_ex_end%in%ref_exon_ends)# not a known exon, but starts and ends on known exons
-
+k <- fully_novel_exons+a3ss_novel_exons+a5ss_novel_exons+ri_novel_exons
 #?why so many retained introns? are the intronic from all the samples getting amplified reads from each sample 
 novel_st_exons_in_rmats <- novel_st_exons_in_rmats %>%
     mutate(reclassified_event= case_when(fully_novel_exons ~ "novel_exon",
                                          a3ss_novel_exons ~ "A3SS",
                                          a5ss_novel_exons ~ "A5SS",
-                                         ri_novel_exons ~ "RI"))%>% 
+                                         ri_novel_exons ~ "RI"))#%>% 
+table(novel_st_exons_in_rmats$reclassified_event)
     inner_join(select(gfc_gtf, transcript_id, seqid, strand, start, end)) %>% select(event_header, transcript_id, reclassified_event, everything())
 
 

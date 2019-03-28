@@ -103,7 +103,8 @@ rule all:
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
      expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']),\
      #expand('bigwigs/{id}.bw', id=sample_names), expand('tissue_bigwigs/{tissue}.bw', tissue=subtissues),
-     output_for_mosdepth(sample_dict, eye_tissues)
+     'results/exons_for_coverage_analysis.bed'
+     #output_for_mosdepth(sample_dict, eye_tissues)
 
 '''
 ****PART 1**** download files and align to genome
@@ -445,12 +446,12 @@ rule aggregate_salmon_counts:
 part 7 analyze results
 '''
 rule determineNovelTranscripts:
-    input:expand('results/all_tissues.{type}.tsv', type=['incCts','PSI'])
+    input:expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']), 'results/salmon_gene_quant.Rdata', 'results/salmon_tx_quant.Rdata'
     output: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/determineNovelTranscripts.R {working_dir} {stringtie_full_gtf} {sample_file} {input} {output}
+        Rscript scripts/determineNovelTranscripts.R {working_dir} {stringtie_full_gtf} {sample_file} {input}  {output}
         '''
 
 rule makeBedforMosDepth:

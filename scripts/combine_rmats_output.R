@@ -1,8 +1,8 @@
 #setwd('~/NIH/eyeintegration_splicing/')
 library(tidyverse)
-args <-c('~/NIH/eyeintegration_splicing/',
-         'PSI',
-         'results_b38/all_tissues.incCts.tsv')
+# args <-c('/Volum',
+#          'PSI',
+#          'results_b38/all_tissues.incCts.tsv')
 args <- commandArgs(trailingOnly = T)
 working_dir=args[1]
 type=args[2]

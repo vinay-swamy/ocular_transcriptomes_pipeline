@@ -71,11 +71,11 @@ process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_
         
         exon_cts <- rbind(exon_1, exon_2, stringsAsFactors=F) %>% group_by(seqid,strand, start, end) %>%  
             summarise(incCts=sum(med_IJC_SAMPLE_1)) %>% mutate(PSI=1)
-        incLvl <- select(exon_cts, -incCts)
-        colnames(incLvl) <- c('seqid','strand', 'start', 'end', paste(tissue, 'PSI',sep = '_'))
+        psiLvl <- select(exon_cts, -incCts)
+        colnames(psiLvl) <- c('seqid','strand', 'start', 'end', paste(tissue, 'PSI',sep = '_'))
         medCts <- select(exon_cts, -PSI)
         colnames(medCts) <- c('seqid','strand', 'start', 'end', paste(tissue, 'incCts',sep = '_'))
-        write_tsv(incLvl, outfile_psi)
+        write_tsv(psiLvl, outfile_psi)
         write_tsv(medCts, outfile_incCts)
         return(0)
 
@@ -90,12 +90,12 @@ process_rmats_output <- function(file,event,sample_file,outfile_incCts, outfile_
         summarise(incCts=sum(med_IJC_SAMPLE_1),exclCts=sum(med_SJC_SAMPLE_1)) %>% 
         mutate(PSI=incCts/(incCts + exclCts)) %>% mutate(PSI=replace(PSI, is.nan(PSI),0))
 
-    incLvl <- select(exon_cts, dup_header[[event]], PSI)
-    colnames(incLvl) <- c('seqid','strand', 'start', 'end', paste(tissue, 'PSI',sep = '_'))
+    psiLvl <- select(exon_cts, dup_header[[event]], PSI)
+    colnames(psiLvl) <- c('seqid','strand', 'start', 'end', paste(tissue, 'PSI',sep = '_'))
     medCts <- select(exon_cts, dup_header[[event]], incCts)
     colnames(medCts) <- c('seqid','strand', 'start', 'end', paste(tissue, 'incCts',sep = '_'))
     
-    write_tsv(incLvl, outfile_psi)
+    write_tsv(psiLvl, outfile_psi)
     write_tsv(medCts, outfile_incCts)
 
 }

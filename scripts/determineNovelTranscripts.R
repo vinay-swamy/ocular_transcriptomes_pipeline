@@ -19,8 +19,9 @@ incTab_file <- args[4]
 medCts_file <- args[5]
 salmon_gene_quant<- args[6]
 salmon_tx_quant <- args[7]
-tissue_level_counts <- args[8]
-exon_info_file <- args[9]
+ref_gtf <- args[8]
+tissue_level_counts <- args[9]
+exon_info_file <- args[10]
 
 
 
@@ -78,12 +79,9 @@ k <- anti_join(rm, st) %>% pull(ljid) %>% {filter(rmats_minimally_expressed, lji
 
 
 # create a set of reference exons by selecting all exons from reference transcripts.    
-# all_ref_exons_st <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
-# {filter(gfc_gtf, transcript_id %in% . , type=='exon')} %>% select(seqid, strand,start,end) %>% distinct %>% 
-#   mutate(seqid=as.character(seqid))
 
 
-all_ref_exons <-  rtracklayer::readGFF('ref/gencodeAno_comp.gtf') %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
+all_ref_exons <-  rtracklayer::readGFF(ref_gtf) %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid))
 #all_ref_exons <- rbind(all_ref_exons_gc, all_ref_exons_st) %>% mutate(seqid=as.character(seqid), strand=as.character(strand)) %>% distinct
 ref_exon_full <- split(all_ref_exons, 1:nrow(all_ref_exons))
@@ -128,10 +126,9 @@ novel_st_exons_in_rmats <- novel_st_exons_in_rmats %>%
     mutate(reclassified_event= case_when(fully_novel_exons ~ "novel_exon",
                                          a3ss_novel_exons ~ "A3SS",
                                          a5ss_novel_exons ~ "A5SS",
-                                         ri_novel_exons ~ "RI"))#%>% 
-table(novel_st_exons_in_rmats$reclassified_event)
+                                         ri_novel_exons ~ "RI"))%>% 
     inner_join(select(gfc_gtf, transcript_id, seqid, strand, start, end)) %>% select(event_header, transcript_id, reclassified_event, everything())
-
+#save(novel_st_exons_in_rmats, file = all_reclassed_Events)
 
 
 

@@ -118,6 +118,7 @@ rule downloadGencode:
         '''
         wget -O - {config[refFasta_url]} | gunzip -c - > ref/gencodeRef.fa
         wget -O - {config[refGTF_basic_url]} | gunzip -c - > ref/gencodeAno_bsc.gtf
+        wget -O - {config[refGTF_comp_url]} | gunzsip -c - > ref/gencodeAno_comp.gtf
         wget -O - {config[refPA_url]} | gunzip -c - > /tmp/gencodePA_tmp.fa
         wget -O - {config[refProtSeq_url]} | gunzip -c - > /tmp/gencodeProtSeq.fa
         wget -O - {config[refGFF3_url]} | gunzip -c > ref/gencodeGFF3.gff
@@ -446,7 +447,7 @@ rule aggregate_salmon_counts:
 part 7 analyze results
 '''
 rule determineNovelTranscripts:
-    input:expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']), 'results/salmon_gene_quant.Rdata', 'results/salmon_tx_quant.Rdata'
+    input:expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']), 'results/salmon_gene_quant.Rdata', 'results/salmon_tx_quant.Rdata', 'ref/gencodeAno_comp.gtf'
     output: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
     shell:
         '''

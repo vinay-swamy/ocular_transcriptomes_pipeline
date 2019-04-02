@@ -1,14 +1,16 @@
 library(tidyverse)
 
 
-# args=c('/Volumes/data/eyeintegration_splicing/', 
-#        'results/all_tissues.combined.gtf',
-#        'ref/gencodeAno_comp.gtf',
-#        'sampleTableV4.tsv',
-#        'results/salmon_tissue_level_counts.Rdata', 
-#        'results/all_novel_exon_info_tabs.Rdata',
-#        'results/as_event_ls_class_SE.Rdata',
-#        'results/exons_for_cov_analysis_rpe.bed')
+args=c('/Volumes/data/eyeintegration_splicing/',
+       'results/all_tissues.combined.gtf',
+       'ref/gencodeAno_comp.gtf',
+       'sampleTableV4.tsv',
+       'results/salmon_tissue_level_counts.Rdata',
+       'results/novel_exon_expression_tables.Rdata',
+       'results/ref_exon_table.tsv',
+       'results/novel_exon_ref_exon_comparison_table.Rdata',
+       'results/exons_for_coverage_analysis.bed'
+       )
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
@@ -16,11 +18,13 @@ ref_gtf_file <- args[3]
 sample_file <- args[4]
 salmon_count_file <- args[5]
 exon_info_file <- args[6]
-event_ls_file <- args[7]
-exon_bed_file <- args[8]
+ref_exon_table <- args[7]
+event_ls_file <- args[8]
+exon_bed_file <- args[9]
 
 setwd(working_dir)
 ###part 1 make reference exon set using eyeintegration tpms
+load(exon_info_file)
 gtf <- rtracklayer::readGFF(ref_gtf_file) %>% mutate(start =start -1)
 t2g <- gtf %>%filter(type =='transcript') %>% select(gene_name, transcript_id) %>% distinct
 sample_design <- read_tsv('sampleTableV4.tsv', col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
@@ -34,16 +38,18 @@ top_tx_by_tissue_2 <-  subtissues %>% lapply(function(x) filter(sample_design, s
                                                  {select(tx_quant, gene_name, transcript_id, .)} %>%  
                                                  mutate(med_ct= matrixStats::rowMedians(.[,-(1:2)] %>% as.matrix)) %>% 
                                                  filter(med_ct > 1) %>% select(gene_name, transcript_id) %>% mutate(exp=T)
+                                             # roughly defining expression as median tpm of 1, so pretty basic might have to tighten this criteria to improve results.
 ) %>%  reduce(full_join, by=c('gene_name', 'transcript_id'))
 
 colnames(top_tx_by_tissue_2) <- c('gene_name', 'transcript_id',paste0('exp.', subtissues))
 top_tx_by_tissue_2[is.na(top_tx_by_tissue_2)] <- 0
 ref_exon_tab <- filter(gtf, type =='exon') %>% select(seqid,strand, start,end, transcript_id) %>% inner_join(top_tx_by_tissue_2) %>% distinct
-ref_exon_bed <-ref_exon_tab %>% select(seqid, start, end) %>% distinct 
+write_tsv(ref_exon_tab, ref_exon_table)
+nx_bed <- nx_inc_cts %>% select(seqid, start, end) %>% distinct
+ref_exon_bed <-ref_exon_tab %>% select(seqid, start, end) %>% distinct %>% rbind(nx_bed)
 ##############################################
 #part2
 
-load(exon_info_file)
 load(salmon_count_file)
 salmon_cut_off_lvl <- 15
 rmats_cut_off_lvl <- .25

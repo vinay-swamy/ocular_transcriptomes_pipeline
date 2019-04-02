@@ -148,9 +148,12 @@ gtf_se<- left_join(gfc_gtf, select(novel_string_tie_exons, seqid, strand, start,
 skipped_exon_tx <- filter(gtf_se, grepl('MSTRG', oId)) %>% pull(transcript_id) %>% 
 {filter(gtf_se, transcript_id %in% .)} %>% group_by(transcript_id) %>% summarise(no_new_exon=all(!is.novel)) %>%
     filter(no_new_exon)
-nx_inc_cts <- novel_st_exons_in_rmats
-nx_psi <- inner_join( nx_inc_cts%>%select(transcript_id, reclassified_event, is.novel, ljid ), psiTab)
-nx_skipped_exon <- skipped_exon_tx
+txid2gene <- filter(gfc_gtf, type=='transcript') %>% select(transcript_id, gene_name) %>% distinct %>% 
+  mutate(gene_name=replace(gene_name, is.na(gene_name), transcript_id[is.na(gene_name)]))
+
+nx_inc_cts <- novel_st_exons_in_rmats %>% left_join(txid2gene) %>% select(-contains('incC'), contains('incC'))
+nx_psi <- inner_join( nx_inc_cts%>%select(transcript_id, reclassified_event, is.novel, ljid, gene_name ), psiTab) %>% select(-contains('PSI'), contains('PSI'))
+nx_skipped_exon <- skipped_exon_tx %>% left_join(txid2gene)
 save(nx_inc_cts, nx_psi, nx_skipped_exon, file = exon_info_file )
 
 # #determine novel transcript expression within the eye

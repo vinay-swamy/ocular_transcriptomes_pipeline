@@ -459,7 +459,7 @@ rule determineNovelTranscripts:
 
 rule makeBedforMosDepth:
     input: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
-    output: 'results/novel_exon_ref_exon_comparison_table.Rdata', 'results/exons_for_coverage_analysis.bed'
+    output: 'results/ref_exon_table.tsv' , 'results/novel_exon_ref_exon_comparison_table.Rdata', 'results/exons_for_coverage_analysis.bed'
     shell:
         '''
         module load {R_version}

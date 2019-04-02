@@ -1,20 +1,48 @@
 library(tidyverse)
-args=c('~/NIH/eyeintegration_splicing/', 
-       'results_b38/all_tissues.combined.gtf',
-       'results_b38/salmon_tissue_level_counts.Rdata',  
-       'results_b38/all_novel_exon_infoV2.Rdata',
-       'results_b38/as_event_ls_class.Rdata',
-       '/Volumes/data/eyeintegration_splicing/results/exons_for_cov_analysis_rpe.bed')
+
+
+# args=c('/Volumes/data/eyeintegration_splicing/', 
+#        'results/all_tissues.combined.gtf',
+#        'ref/gencodeAno_comp.gtf',
+#        'sampleTableV4.tsv',
+#        'results/salmon_tissue_level_counts.Rdata', 
+#        'results/all_novel_exon_info_tabs.Rdata',
+#        'results/as_event_ls_class_SE.Rdata',
+#        'results/exons_for_cov_analysis_rpe.bed')
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
-salmon_count_file <- args[3]
-exon_info_file <- args[4]
-event_ls_file <- args[5]
-exon_bed_file <- args[6]
-tissue <- 'RPE_Fetal.Tissue'
+ref_gtf_file <- args[3]
+sample_file <- args[4]
+salmon_count_file <- args[5]
+exon_info_file <- args[6]
+event_ls_file <- args[7]
+exon_bed_file <- args[8]
 
 setwd(working_dir)
+###part 1 make reference exon set using eyeintegration tpms
+gtf <- rtracklayer::readGFF(ref_gtf_file) %>% mutate(start =start -1)
+t2g <- gtf %>%filter(type =='transcript') %>% select(gene_name, transcript_id) %>% distinct
+sample_design <- read_tsv('sampleTableV4.tsv', col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
+tx_quant <- read_tsv('ref/2019_tx_TPM_03.tsv.gz') %>% select(ID, which(colnames(.) %in% sample_design$sample))  
+tx_quant <- tx_quant %>% mutate(transcript_id=str_split(ID, '\\(|\\)') %>% sapply(function(x) x[[2]]),  ID=NULL) %>% inner_join(t2g, .)
+sample_design <- sample_design %>% .[sample_design$sample %in% colnames(tx_quant),]
+subtissues <- sample_design %>% pull(subtissue) %>% unique
+
+top_tx_by_tissue_2 <-  subtissues %>% lapply(function(x) filter(sample_design, subtissue ==x) %>% 
+                                                 pull( sample) %>% 
+                                                 {select(tx_quant, gene_name, transcript_id, .)} %>%  
+                                                 mutate(med_ct= matrixStats::rowMedians(.[,-(1:2)] %>% as.matrix)) %>% 
+                                                 filter(med_ct > 1) %>% select(gene_name, transcript_id) %>% mutate(exp=T)
+) %>%  reduce(full_join, by=c('gene_name', 'transcript_id'))
+
+colnames(top_tx_by_tissue_2) <- c('gene_name', 'transcript_id',paste0('exp.', subtissues))
+top_tx_by_tissue_2[is.na(top_tx_by_tissue_2)] <- 0
+ref_exon_tab <- filter(gtf, type =='exon') %>% select(seqid,strand, start,end, transcript_id) %>% inner_join(top_tx_by_tissue_2) %>% distinct
+ref_exon_bed <-ref_exon_tab %>% select(seqid, start, end) %>% distinct 
+##############################################
+#part2
+
 load(exon_info_file)
 load(salmon_count_file)
 salmon_cut_off_lvl <- 15
@@ -22,24 +50,15 @@ rmats_cut_off_lvl <- .25
 gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file) %>% mutate(start=start-1)
 ref_gtf <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
     {filter(gfc_gtf, transcript_id %in% . )} 
-ref_tx_min_exp <- filter(med_tx_counts, transcript_id%in% ref_gtf$transcript_id)
-eye_tissues <- grepl(tissue, colnames(ref_tx_min_exp))
-keep <- ref_tx_min_exp[,eye_tissues] > salmon_cut_off_lvl 
-ref_tx_min_exp_rpe <- ref_tx_min_exp[keep,]
-
-eye_tissues <- grepl(tissue, colnames(nx_med_cts_eye))
-keep <- nx_med_cts_eye[,eye_tissues] > rmats_cut_off_lvl
-nx_med_cts_rpe <- nx_med_cts_eye[keep,]
 
 
-
-all_ref_exons <- filter(ref_gtf, type=='exon', transcript_id %in% ref_tx_min_exp_rpe$transcript_id) %>% select(seqid, strand,start,end) %>% 
+all_ref_exons <- filter(ref_gtf, type=='exon') %>% select(seqid, strand,start,end) %>% 
     mutate(seqid=as.character(seqid)) %>% distinct
 
 
 #? is it better to use all ref exons, (even ones not expresed in eye) and then take the exon that creates the longest coverage between
 ###A3SS and RI's :  we can treat RI's as a3ss in practice as they stradle known exons, and we assume that knownn exons will be covered the sameish
-df <- filter(nx_med_cts_rpe, reclassified_event=='A3SS' | reclassified_event == 'RI') %>% 
+df <- filter(nx_inc_cts, reclassified_event=='A3SS' | reclassified_event == 'RI') %>% 
     select(ljid,reclassified_event,seqid, strand, start, new_end=end) %>% 
     distinct %>% unite(spl,seqid,strand,start, remove = F)
 A3_new_longer_than_ref <- inner_join(df, all_ref_exons %>% rename(ref_end=end)) %>% 
@@ -53,7 +72,7 @@ A3_All <- filter(df, !spl%in%A3_new_longer_than_ref$spl) %>%
     mutate(class='short') %>% rbind(A3_new_longer_than_ref) %>% mutate(ref_id=paste('A3SS', 1:nrow(.), sep = '_'))
 #write A3 all
 ###A5SS
-df <- filter(nx_med_cts_rpe, reclassified_event=='A5SS') %>% select(ljid, reclassified_event, seqid, strand, new_start=start, end) %>% 
+df <- filter(nx_inc_cts, reclassified_event=='A5SS') %>% select(ljid, reclassified_event, seqid, strand, new_start=start, end) %>% 
     distinct %>% unite(spl,seqid,strand,end, remove = F)
 
 a5_new_longer_than_ref <- inner_join(df, all_ref_exons %>% rename(ref_start=start)) %>% 
@@ -66,7 +85,7 @@ a5_all <-filter(df, !spl%in%a5_new_longer_than_ref$spl) %>%
     arrange(desc(delta)) %>% filter(!duplicated(spl)) %>%
     mutate(class='short') %>% rbind(a5_new_longer_than_ref) %>% mutate(ref_id=paste('A5SS', 1:nrow(.), sep = '_'))
 #### novel exons
-df <- filter(nx_med_cts_rpe, reclassified_event=='novel_exon') %>% select(ljid, seqid, strand,start,end, reclassified_event) %>% 
+df <- filter(nx_inc_cts, reclassified_event=='novel_exon') %>% select(ljid, seqid, strand,start,end, reclassified_event) %>% 
     distinct %>% rbind(., all_ref_exons%>%mutate(ljid='.', reclassified_event='ref'))     %>% 
     mutate(reclassified_event=replace_na(reclassified_event, 'ref'),ljid=replace_na(ljid,'.')) %>% arrange(start)
 
@@ -87,7 +106,8 @@ complete_bed <- rbind(A3_All %>% filter(class=='long') %>% select(seqid, start=r
                       a5_all %>% filter(class=='short') %>%select(seqid, start=ref_start, end=new_start,id=ref_id),#
                       nx_all %>% select(seqid, start, end,id= ljid),
                       nx_all %>% select(seqid, start=ref_start,end=ref_end, id=ref_id),
-                      stringsAsFactors=F)
+                      stringsAsFactors=F) %>% select( -id) %>% rbind(ref_exon_bed) %>% distinct
+
 save(A3_All,a5_all, nx_all, file = event_ls_file)
 write_tsv(complete_bed, exon_bed_file, col_names = F)
-    
+

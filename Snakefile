@@ -94,6 +94,7 @@ STARindex='ref/STARindex'
 ref_fasta='ref/gencodeRef.fa'
 ref_GTF='ref/gencodeAno.gtf'
 ref_GTF_basic='ref/gencodeAno_bsc.gtf'
+ref_GTF_comp='ref/gencodeAno_comp.gtf'
 ref_PA='ref/gencodePA.fa'
 fql=config['fastq_path']
 stringtie_full_gtf='results/all_tissues.combined.gtf'
@@ -102,8 +103,9 @@ rule all:
     input:'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata',\
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
      expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']),\
+     'results/results_bw.Rdata'
      #expand('bigwigs/{id}.bw', id=sample_names), expand('tissue_bigwigs/{tissue}.bw', tissue=subtissues),
-     'results/exons_for_coverage_analysis.bed'
+     #'results/exons_for_coverage_analysis.bed'
      #output_for_mosdepth(sample_dict, eye_tissues)
 
 '''
@@ -447,12 +449,12 @@ rule aggregate_salmon_counts:
 part 7 analyze results
 '''
 rule determineNovelTranscripts:
-    input:expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']), 'results/salmon_gene_quant.Rdata', 'results/salmon_tx_quant.Rdata', 'ref/gencodeAno_comp.gtf'
+    input:expand('results/all_tissues.{type}.tsv', type=['PSI', 'incCts']), 'results/salmon_gene_quant.Rdata', 'results/salmon_tx_quant.Rdata'
     output: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/determineNovelTranscripts.R {working_dir} {stringtie_full_gtf} {sample_file} {input}  {output}
+        Rscript scripts/determineNovelTranscripts.R {working_dir} {stringtie_full_gtf} {ref_GTF_comp} {sample_file} {input}  {output}
         '''
 
 rule makeBedforMosDepth:
@@ -461,8 +463,9 @@ rule makeBedforMosDepth:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/makeBedsForCoverageAnalysis.R {working_dir} {stringtie_full_gtf} {input} {output}
+        Rscript scripts/makeBedsForCoverageAnalysis.R {working_dir} {stringtie_full_gtf} {ref_GTF_comp} {sample_file} {input} {output}
         '''
+
 
 rule runMosDepth:
     input:bed='results/exons_for_coverage_analysis.bed', bam='/data/OGVFB_BG/STARbams_realigned/{sample}/Sorted.out.bam'
@@ -473,4 +476,13 @@ rule runMosDepth:
         sample={wildcards.sample}
         module load {mosdepth_version}
         mosdepth --by {input.bed} coverage_files/$subtissue/$sample {input.bam}
+        '''
+
+rule analyze_Coverage:
+    input: output_for_mosdepth(sample_dict, subtissues)
+    output: 'results/results_bw.Rdata'
+    shell:
+        '''
+        touch {output}
+
         '''

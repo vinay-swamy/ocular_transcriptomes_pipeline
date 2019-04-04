@@ -473,7 +473,10 @@ rule calculateExon_Intron_cov:
     input:exon_bed='results/exons_for_coverage_analysis.bed',\
      bam='/data/OGVFB_BG/STARbams_realigned/{sample}/Sorted.out.bam',\
      tx_bed='results/transcript_locations.bed'
-    output:exon_cov='coverage_files/{tissue}/{sample}.regions.bed.gz', intron_cov='coverage_files/{tissue}/{sample}.introns.bed.gz'
+    output:exon_cov='coverage_files/{tissue}/{sample}.regions.bed.gz',\
+     per_base_cov= 'coverage_files/{tissue}/{sample}.per-base.bed.gz',\
+     intron_cov='coverage_files/{tissue}/{sample}.introns-per-base.bed.gz',\
+     per_gene_intron_cov='coverage_files/{tissue}/{sample}.intron_per_gene.bed.gz'
     shell:
         '''
         subtissue={wildcards.tissue}
@@ -482,9 +485,13 @@ rule calculateExon_Intron_cov:
         mosdepth --by {input.exon_bed} coverage_files/$subtissue/$sample {input.bam}
 
         module load {bedtools_version}
-        bedtools subtract -a coverage_files/$subtissue/$sample.per-base.bed.gz -b {input.exon_bed} |
+        bedtools subtract -a {output.per_base_cov} -b {input.exon_bed} |
         bedtools intersect -loj  -a {input.tx_bed} -b stdin  |
         gzip -c  - > {output.intron_cov}
+
+        module load {R_version}
+        Rscript scripts/calcIntronCov.R {output.intron_cov} $sample {output.per_gene_intron_cov}
+
         '''
 
 rule analyze_Coverage:

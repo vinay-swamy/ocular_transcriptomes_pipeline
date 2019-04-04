@@ -19,8 +19,9 @@ sample_file <- args[4]
 salmon_count_file <- args[5]
 exon_info_file <- args[6]
 ref_exon_table <- args[7]
-event_ls_file <- args[8]
-exon_bed_file <- args[9]
+transcript_loc_bed <- args[8] 
+event_ls_file <- args[9]
+exon_bed_file <- args[10]
 
 setwd(working_dir)
 ###part 1 make reference exon set using eyeintegration tpms
@@ -56,7 +57,11 @@ rmats_cut_off_lvl <- .25
 gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file) %>% mutate(start=start-1)
 ref_gtf <- filter(gfc_gtf, grepl('ENST', oId)) %>% pull(transcript_id) %>% 
     {filter(gfc_gtf, transcript_id %in% . )} 
+transcripts_bed <- gfc_gtf %>%  select(seqid, start, end, transcript_id)
+ref_exon_bed <- rbind(ref_exon_bed, filter(gfc_gtf, type =='exon') %>% select(seqid, start, end)) %>% distinct
 
+
+write_tsv(transcripts_bed, transcript_loc_bed, col_names = F)
 
 all_ref_exons <- filter(ref_gtf, type=='exon') %>% select(seqid, strand,start,end) %>% 
     mutate(seqid=as.character(seqid)) %>% distinct

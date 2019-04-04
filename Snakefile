@@ -88,6 +88,7 @@ hmmer_version=config['hmmer_version']
 crossmap_version=config['crossmap_version']
 deeptools_version=config['deeptools_version']
 mosdepth_version=config['mosdepth_version']
+bedtools_version=config['bedtools_version']
 #commonly used files
 working_dir=config['working_dir']
 STARindex='ref/STARindex'
@@ -447,6 +448,7 @@ rule aggregate_salmon_counts:
         '''
 '''
 part 7 analyze results
+-exon_intron cov - need this to beter determine what is
 '''
 rule determineNovelTranscripts:
     input:expand('results/all_tissues.{type}.tsv', type=['PSI', 'incCts']), 'results/salmon_gene_quant.Rdata', 'results/salmon_tx_quant.Rdata'
@@ -459,7 +461,7 @@ rule determineNovelTranscripts:
 
 rule makeBedforMosDepth:
     input: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
-    output: 'results/ref_exon_table.tsv' , 'results/novel_exon_ref_exon_comparison_table.Rdata', 'results/exons_for_coverage_analysis.bed'
+    output: 'results/ref_exon_table.tsv', 'results/transcript_locations.bed', 'results/novel_exon_ref_exon_comparison_table.Rdata', 'results/exons_for_coverage_analysis.bed'
     shell:
         '''
         module load {R_version}
@@ -467,15 +469,22 @@ rule makeBedforMosDepth:
         '''
 
 
-rule runMosDepth:
-    input:bed='results/exons_for_coverage_analysis.bed', bam='/data/OGVFB_BG/STARbams_realigned/{sample}/Sorted.out.bam'
-    output:'coverage_files/{tissue}/{sample}.regions.bed.gz'
+rule calculateExon_Intron_cov:
+    input:exon_bed='results/exons_for_coverage_analysis.bed',\
+     bam='/data/OGVFB_BG/STARbams_realigned/{sample}/Sorted.out.bam',\
+     tx_bed='results/transcript_locations.bed'
+    output:exon_cov='coverage_files/{tissue}/{sample}.regions.bed.gz', intron_cov='coverage_files/{tissue}/{sample}.introns.bed.gz'
     shell:
         '''
         subtissue={wildcards.tissue}
         sample={wildcards.sample}
         module load {mosdepth_version}
-        mosdepth --by {input.bed} coverage_files/$subtissue/$sample {input.bam}
+        mosdepth --by {input.exon_bed} coverage_files/$subtissue/$sample {input.bam}
+
+        module load {bedtools_version}
+        bedtools subtract -a coverage_files/$subtissue/$sample.per-base.bed.gz -b {input.exon_bed} |
+        bedtools intersect -loj  -a {input.tx_bed} -b stdin  |
+        gzip -c  - > {output.intron_cov}
         '''
 
 rule analyze_Coverage:

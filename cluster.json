@@ -177,12 +177,12 @@
                 "extra" : ""
 
         },
-        "runMosDepth":
+        "calculateExon_Intron_cov":
         {
                 "partition" : "quick",
                 "cpus-per-task" : "1",
-                "time" : "2:00:00",
-                "mem" : "24g",
+                "time" : "1:00:00",
+                "mem" : "8g",
                 "output"  : "00log/{rule}_{wildcards}.out",
                 "error" : "00log/{rule}_{wildcards}.err",
                 "extra" : ""

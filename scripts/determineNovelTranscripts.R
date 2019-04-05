@@ -26,6 +26,14 @@ tissue_level_counts <- args[9]
 exon_info_file <- args[10]
 
 #save(args, file = 'testing/args_detnxtx.Rdata')
+process_refSeq_ano <- function(df){
+    acc <- df %>% select(seqid, chromosome) %>% filter(!is.na(chromosome), chromosome != 'Unknown') %>% mutate(chr=paste0('chr',chromosome))
+    bed <- df %>% filter(type == 'exon') %>% select(seqid, strand, start, end) %>% inner_join(acc) %>% select(-chromosome,-seqid ) %>% 
+        select(seqid=chr, strand, start, end) %>% distinct
+    bed
+}
+
+
 
 setwd(working_dir)
 event_header <- c('ljid', 'seqid'	,'strand',	'start', 'end',	'event', 'length')
@@ -92,9 +100,14 @@ rmats_minimally_expressed <- incCounts_filter[!keep_len,]
 # create a set of reference exons by selecting all exons from reference transcripts.    
 
 
-all_ref_exons <-  rtracklayer::readGFF(ref_gtf) %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
+#all_ref_exons
+gencode_ref<-  rtracklayer::readGFF(ref_gtf) %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid))
+ensembl_ref <- rtracklayer::readGFF('ref/ensembl_r95.gtf') %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
+    mutate(seqid=as.character(seqid))
+refseq_ref <- process_refSeq_ano(rtracklayer::readGFF('ref/ref/refseq_r95.gff'))
 #all_ref_exons <- rbind(all_ref_exons_gc, all_ref_exons_st) %>% mutate(seqid=as.character(seqid), strand=as.character(strand)) %>% distinct
+all_ref_exons <- rbind(gencode_ref, ensembl_ref, refseq_ref) %>% mutate(seqid=as.character(seqid), strand=as.character(strand)) %>% distinct
 ref_exon_full <- split(all_ref_exons, 1:nrow(all_ref_exons))
 
 # next, create a set of exons with some level of novelty
@@ -109,7 +122,7 @@ novel_string_tie_exons <- all_novel_exons[novel,] %>% distinct %>% mutate(is.nov
 ### different criteria, doing the same for rmats.
 ##############
 # novel_st_exons_NOT_in_rmats <- anti_join(novel_string_tie_exons, rmats_minimally_expressed) %>%
-#     left_join(select(gfc_gtf, transcript_id, seqid, strand, start, end))
+#     left_join(select(gfc_gtf, transcript_id, seqqid, strand, start, end))
 # st <- filter(gfc_gtf, transcript_id %in% stringtie_min_exp$transcript_id, type == 'exon') %>%  select(seqid, strand, start, end) %>% distinct
 # rmats_exons_NOT_in_st <- anti_join(rmats_minimally_expressed,st)
 # save(desc,novel_st_exons_NOT_in_rmats, rmats_exons_NOT_in_st, file = 'results/novel_exons_not_agreeing.Rdata')

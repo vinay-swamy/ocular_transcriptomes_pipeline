@@ -121,7 +121,7 @@ rule downloadGencode:
         '''
         wget -O - {config[refFasta_url]} | gunzip -c - > ref/gencodeRef.fa
         wget -O - {config[refGTF_basic_url]} | gunzip -c - > ref/gencodeAno_bsc.gtf
-        wget -O - {config[refGTF_comp_url]} | gunzsip -c - > ref/gencodeAno_comp.gtf
+        wget -O - {config[refGTF_comp_url]} | gunzip -c - > ref/gencodeAno_comp.gtf
         wget -O - {config[refPA_url]} | gunzip -c - > /tmp/gencodePA_tmp.fa
         wget -O - {config[refProtSeq_url]} | gunzip -c - > /tmp/gencodeProtSeq.fa
         wget -O - {config[refGFF3_url]} | gunzip -c > ref/gencodeGFF3.gff

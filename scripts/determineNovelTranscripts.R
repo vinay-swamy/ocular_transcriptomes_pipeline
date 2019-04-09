@@ -1,17 +1,16 @@
 library(tidyverse)
 library(matrixStats)
 
-
-args <- c('/Volumes/data/eyeintegration_splicing/',
-          'results/all_tissues.combined.gtf',
-          'ref/gencodeAno_comp.gtf',
-          'sampleTableV4.tsv',
-          'results/all_tissues.PSI.tsv',
-          'results/all_tissues.incCts.tsv',
-          'results/salmon_gene_quant.Rdata',
-          'results/salmon_tx_quant.Rdata',
-          'results/salmon_tissue_level_counts.Rdata',
-          'results/as_event_ls_classV2.Rdata')
+# args <- c('/Volumes/data/eyeintegration_splicing/',
+#           'results/all_tissues.combined.gtf',
+#           'ref/gencodeAno_comp.gtf',
+#           'sampleTableV4.tsv',
+#           'results/all_tissues.PSI.tsv',
+#           'results/all_tissues.incCts.tsv',
+#           'results/salmon_gene_quant.Rdata',
+#           'results/salmon_tx_quant.Rdata',
+#           'testing/salmon_tissue_level_counts.Rdata',
+#           'testing/novel_exon_expression_tables_V2.Rdata')
 
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
@@ -85,9 +84,11 @@ gencode_ref<-  rtracklayer::readGFF(ref_gtf) %>% mutate(start=start - 1)  %>% fi
     mutate(seqid=as.character(seqid))
 ensembl_ref <- rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/ensembl_r95.gtf') %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid), seqid= paste0('chr', seqid))
-refseq_ref <- process_refSeq_ano(rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/refseq_r95.gff') %>% as.data.frame)
-#all_ref_exons <- rbind(all_ref_exons_gc, all_ref_exons_st) %>% mutate(seqid=as.character(seqid), strand=as.character(strand)) %>% distinct
-all_ref_exons <- rbind(gencode_ref, ensembl_ref, refseq_ref) %>% mutate(seqid=as.character(seqid), strand=as.character(strand)) %>% distinct
+refseq_ncbi_ref <- process_refSeq_ano(rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/refseq_r95.gff') %>% as.data.frame)
+refseq_ucsc <- rtracklayer::readGFF('ref/ucsc_refseq.gtf') %>% mutate(start=start-1, seqid=as.character(seqid)) %>% select(seqid, strand, start, end) %>% distinct
+
+all_ref_exons <- rbind(gencode_ref, ensembl_ref, refseq_ncbi_ref,refseq_ucsc ) %>% 
+    mutate(seqid=as.character(seqid), strand=as.character(strand)) %>% distinct
 save(all_ref_exons, file='rdata/all_ref_exons.Rdata')
 #ref_exon_full <- split(all_ref_exons, 1:nrow(all_ref_exons))
 # next, create a set of exons with some level of novelty

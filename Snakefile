@@ -114,6 +114,7 @@ rule all:
 -still need to add missing fastq files
 -gffread needs indexed fasta
 -need to add versioning of tools to yaml{DONE}
+04/08/2019 - added the mysql command to get a comprehensive gtf from ucsc, which is somehow different than the
 '''
 rule downloadGencode:
     output:ref_fasta,ref_GTF_basic,ref_PA
@@ -125,6 +126,11 @@ rule downloadGencode:
         wget -O - {config[refPA_url]} | gunzip -c - > /tmp/gencodePA_tmp.fa
         wget -O - {config[refProtSeq_url]} | gunzip -c - > /tmp/gencodeProtSeq.fa
         wget -O - {config[refGFF3_url]} | gunzip -c > ref/gencodeGFF3.gff
+        wget -O - {config[ensembl_gtf_url]} | gunzip -c ref/ensembl_ano.gtf
+        wget -O - {config[refseq_ncbi_url]} | gunzip -c ref/refseq_ncbi.gff3
+        module load mysql
+        module load ucsc
+        mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -N -e "select * from refGene" hg38 | cut -f2- | genePredToGtf -source=hg38.refGene.ucsc file stdin refs.gtf
         module load python/3.6
         python3 scripts/filterFasta.py /tmp/gencodePA_tmp.fa ref/chroms_to_remove ref/gencodePA.fa
         python3 scripts/clean_fasta.py /tmp/gencodeProtSeq.fa ref/gencodeProtSeq.fa

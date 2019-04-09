@@ -1,16 +1,16 @@
 library(tidyverse)
 library(matrixStats)
 
-# args <- c('/Volumes/data/eyeintegration_splicing/',
-#           'results/all_tissues.combined.gtf',
-#           'ref/gencodeAno_comp.gtf',
-#           'sampleTableV4.tsv',
-#           'results/all_tissues.PSI.tsv',
-#           'results/all_tissues.incCts.tsv',
-#           'results/salmon_gene_quant.Rdata',
-#           'results/salmon_tx_quant.Rdata',
-#           'testing/salmon_tissue_level_counts.Rdata',
-#           'testing/novel_exon_expression_tables_V2.Rdata')
+args <- c('/Volumes/data/eyeintegration_splicing/',
+          'results/all_tissues.combined.gtf',
+          'ref/gencodeAno_comp.gtf',
+          'sampleTableV4.tsv',
+          'results/all_tissues.PSI.tsv',
+          'results/all_tissues.incCts.tsv',
+          'results/salmon_gene_quant.Rdata',
+          'results/salmon_tx_quant.Rdata',
+          'testing/salmon_tissue_level_counts.Rdata',
+          'testing/novel_exon_expression_tables.Rdata')
 
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
@@ -71,6 +71,7 @@ save(med_tx_counts, med_gene_counts, file = tissue_level_counts)
 ###########################################################################
 all_events_count_distributions <- incCounts %>% select(-event_header) %>% apply(2, function(x) quantile(x, seq(0,1,.1))) %>% t
 #old_counts_distribution <-  old_inc_counts %>% select(contains('_incC')) %>% apply(2, function(x) quantile(x, seq(0,1,.1))) %>% t
+pheatmap::pheatmap(log2(all_events_count_distributions[,-(1:6)]), cluster_rows = F, cluster_cols = F)
 
 # based on this paper https://link.springer.com/article/10.1007%2Fs10709-007-9139-4 exons are not super big, so i think 
 # removing exons longer than 1500 bp should be more than enough

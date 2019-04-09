@@ -21,6 +21,8 @@ notes:
 - restructured outputs so things are a little more organized
 - only using paired samples for rmats
 - finally got rid of the shitty salmon command
+
+**************REMEMBER TO CHANGE THE WORKING DIR IN THE CONFIG FILE IF YOU RERUN*********
 '''
 import subprocess as sp
 
@@ -89,7 +91,7 @@ crossmap_version=config['crossmap_version']
 deeptools_version=config['deeptools_version']
 mosdepth_version=config['mosdepth_version']
 bedtools_version=config['bedtools_version']
-#commonly used files
+#commonly used files/paths 
 working_dir=config['working_dir']
 STARindex='ref/STARindex'
 ref_fasta='ref/gencodeRef.fa'
@@ -114,7 +116,8 @@ rule all:
 -still need to add missing fastq files
 -gffread needs indexed fasta
 -need to add versioning of tools to yaml{DONE}
-04/08/2019 - added the mysql command to get a comprehensive gtf from ucsc, which is somehow different than the
+04/08/2019 - added the mysql command to get a comprehensive refseq gtf from ucsc, which is somehow different than the one
+from ncbi. see https://bioinformatics.stackexchange.com/questions/2548/hg38-gtf-file-with-refseq-annotations
 '''
 rule downloadGencode:
     output:ref_fasta,ref_GTF_basic,ref_PA

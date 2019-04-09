@@ -1,16 +1,17 @@
 library(tidyverse)
 
 
-args=c('/Volumes/data/eyeintegration_splicing/',
-       'results/all_tissues.combined.gtf',
-       'ref/gencodeAno_comp.gtf',
-       'sampleTableV4.tsv',
-       'results/salmon_tissue_level_counts.Rdata',
-       'results/novel_exon_expression_tables.Rdata',
-       'results/ref_exon_table.tsv',
-       'results/novel_exon_ref_exon_comparison_table.Rdata',
-       'results/exons_for_coverage_analysis.bed'
-       )
+# args=c('/Volumes/data/eyeintegration_splicing/',
+#        'results/all_tissues.combined.gtf',
+#        'ref/gencodeAno_comp.gtf',
+#        'sampleTableV4.tsv',
+#        'results/salmon_tissue_level_counts.Rdata',
+#        'results/novel_exon_expression_tables.Rdata',
+#        'testing/ref_exon_table.tsv',
+#        'testing/transcript_locations.bed',
+#        'testing/novel_exon_ref_exon_comparison_table.Rdata',
+#        'testing/exons_for_coverage_analysis.bed'
+#        )
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]

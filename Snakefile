@@ -91,7 +91,7 @@ crossmap_version=config['crossmap_version']
 deeptools_version=config['deeptools_version']
 mosdepth_version=config['mosdepth_version']
 bedtools_version=config['bedtools_version']
-#commonly used files/paths 
+#commonly used files/paths
 working_dir=config['working_dir']
 STARindex='ref/STARindex'
 ref_fasta='ref/gencodeRef.fa'
@@ -151,6 +151,21 @@ rule build_pfm_hmmDB:
         module load {hmmer_version}
         hmmpress {output}
         '''
+# This is manily for rerunning on biowulf,
+rule  build_gffread:
+    output:'gffread/gffread'
+    shell:
+        '''
+        mkdir gffread
+        cd gffread
+        cd /some/build/dir
+        git clone https://github.com/gpertea/gclib
+        git clone https://github.com/gpertea/gffread
+        cd gffread
+        make release
+        '''
+
+
 
 rule build_STARindex:
     input: ref_PA, ref_GTF_basic
@@ -239,7 +254,7 @@ rule merge_tissue_gtfs:
         '''
 #gffread v0.9.12.Linux_x86_64/
 rule make_tx_fasta:
-    input: stringtie_full_gtf
+    input:'gffread/gffread', stringtie_full_gtf
     output: 'results/combined_stringtie_tx.fa'
     shell:
         '''

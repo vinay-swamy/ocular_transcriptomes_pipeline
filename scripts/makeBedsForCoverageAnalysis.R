@@ -6,7 +6,7 @@ library(tidyverse)
 #        'ref/gencodeAno_comp.gtf',
 #        'sampleTableV4.tsv',
 #        'results/salmon_tissue_level_counts.Rdata',
-#        'results/novel_exon_expression_tables.Rdata',
+#        'testing/novel_exon_expression_tables.Rdata',
 #        'testing/ref_exon_table.tsv',
 #        'testing/transcript_locations.bed',
 #        'testing/novel_exon_ref_exon_comparison_table.Rdata',
@@ -49,6 +49,7 @@ ref_exon_tab <- filter(gtf, type =='exon') %>% select(seqid,strand, start,end, t
 write_tsv(ref_exon_tab, ref_exon_table)
 nx_bed <- nx_inc_cts %>% select(seqid, start, end) %>% distinct
 ref_exon_bed <-ref_exon_tab %>% select(seqid, start, end) %>% distinct %>% rbind(nx_bed)
+
 ##############################################
 #part2
 
@@ -66,6 +67,40 @@ write_tsv(transcripts_bed, transcript_loc_bed, col_names = F)
 
 all_ref_exons <- filter(ref_gtf, type=='exon') %>% select(seqid, strand,start,end) %>% 
     mutate(seqid=as.character(seqid)) %>% distinct
+############################################################################################
+#local intron cov
+gtf_ano <- nx_inc_cts %>% select(seqid, strand, start, end, ljid) %>% distinct %>% mutate(is.novel=T) %>% 
+    left_join(gfc_gtf, .) %>% filter(type=='exon') %>% mutate(is.novel=replace_na(is.novel, F)) 
+calc_intron <- function(df){
+    locs <- which(df$is.novel)
+    k <- lapply(locs, function(l){
+        if((l-1)>0 &((l+1)<=nrow(df))){
+            us_e <- c(df[(l-1),'end'],df[l,'end'])
+            ds_e <- c( df[l,'start'], df[(l+1),'start'])
+            data_frame(seqid=df$seqid[1:2], start=us_e, end=ds_e, id=rep(df$ljid[l],2), tx=df$transcript_id[1:2], strand=df$strand[1:2])
+        }else if((l-1)==0){
+            us_e <- df[l,'end']
+            ds_e <- df[(l+1),'start']
+            data_frame(seqid=df$seqid[1], start=us_e, end=ds_e, id=df$ljid[l], tx=df$transcript_id[1], strand=df$strand[1])
+        }else if((l+1)==(nrow(df)+1)){
+            us_e <- c(df[(l-1),'end'])
+            ds_e <- c( df[l,'start'])
+            data_frame(seqid=df$seqid[1], start=us_e, end=ds_e, id=df$ljid[l], tx=df$transcript_id[1], strand=df$strand[1]) 
+        }else {
+            data.frame(seqid=NA, start=NA, end=NA, id=NA, tx=NA,strand=NA)
+        }
+    }) %>% bind_rows
+    return(k)
+}
+
+
+intron_info_tab <- gtf_ano %>% filter(is.novel) %>% pull(transcript_id) %>% {filter(gtf_ano, transcript_id %in% . , type=='exon')} %>%
+    split(.$transcript_id) %>%  lapply(calc_intron) %>% bind_rows %>% filter(!is.na(seqid), !is.na(end)) 
+write_tsv(intron_info_tab,'results/intron_info_tab.tsv')
+intron_bed <-  intron_info_tab %>% select(seqid, start, end) %>% distinct
+#write_tsv(intron_bed,'testing/introns.bed', col_names = F)
+
+ref_exon_bed <- intron_bed  %>%  rbind(ref_exon_bed) %>% distinct
 
 
 #? is it better to use all ref exons, (even ones not expresed in eye) and then take the exon that creates the longest coverage between

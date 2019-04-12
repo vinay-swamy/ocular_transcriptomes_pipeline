@@ -1,16 +1,17 @@
+library(GenomicRanges)
 library(tidyverse)
 library(matrixStats)
 
-args <- c('/Volumes/data/eyeintegration_splicing/',
-          'results/all_tissues.combined.gtf',
-          'ref/gencodeAno_comp.gtf',
-          'sampleTableV4.tsv',
-          'results/all_tissues.PSI.tsv',
-          'results/all_tissues.incCts.tsv',
-          'results/salmon_gene_quant.Rdata',
-          'results/salmon_tx_quant.Rdata',
-          'testing/salmon_tissue_level_counts.Rdata',
-          'testing/novel_exon_expression_tables.Rdata')
+# args <- c('/Volumes/data/eyeintegration_splicing/',
+#           'results/all_tissues.combined.gtf',
+#           'ref/gencodeAno_comp.gtf',
+#           'sampleTableV4.tsv',
+#           'results/all_tissues.PSI.tsv',
+#           'results/all_tissues.incCts.tsv',
+#           'results/salmon_gene_quant.Rdata',
+#           'results/salmon_tx_quant.Rdata',
+#           'testing/salmon_tissue_level_counts.Rdata',
+#           'testing/novel_exon_expression_tables.Rdata')
 
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
@@ -25,15 +26,6 @@ tissue_level_counts <- args[9]
 exon_info_file <- args[10]
 
 #save(args, file = 'testing/args_detnxtx.Rdata')
-process_refSeq_ano <- function(df){
-    acc <- df %>% select(seqid, chromosome) %>% filter(!is.na(chromosome), chromosome != 'Unknown') %>% 
-        mutate(chr=paste0('chr',chromosome))
-    bed <- df %>% filter(type == 'exon') %>% select(seqid, strand, start, end) %>% inner_join(acc) %>%
-        select(-chromosome,-seqid ) %>% 
-        select(seqid=chr, strand, start, end) %>% distinct %>% mutate(start =start-1)
-    bed
-}
-
 
 
 setwd(working_dir)
@@ -85,10 +77,16 @@ gencode_ref<-  rtracklayer::readGFF(ref_gtf) %>% mutate(start=start - 1)  %>% fi
     mutate(seqid=as.character(seqid))
 ensembl_ref <- rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/ensembl_r95.gtf') %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid), seqid= paste0('chr', seqid))
-refseq_ncbi_ref <- process_refSeq_ano(rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/refseq_r95.gff') %>% as.data.frame)
-refseq_ucsc <- rtracklayer::readGFF('ref/ucsc_refseq.gtf') %>% mutate(start=start-1, seqid=as.character(seqid)) %>% select(seqid, strand, start, end) %>% distinct
+refseq_ucsc <- rtracklayer::readGFF('ref/ucsc_refseq.gtf') %>% mutate(start=start-1, seqid=as.character(seqid)) #%>% 
+gene2seq <- refseq_ucsc %>%  filter(type =='transcript') %>%  select(chroms=seqid, gene=gene_name) %>% distinct
+refseq_ucsc <- refseq_ucsc %>% filter(type=='exon') %>% select(seqid, strand, start, end) %>% distinct
+refseq_ncbi <- rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/refseq_r95.gff') %>% as.data.frame() %>% 
+    left_join(gene2seq, by='gene') %>% filter(type=='exon') %>%  select(-seqid) %>% select(seqid=chroms, strand, start, end) %>% 
+    filter(!is.na(seqid)) %>% distinct %>% mutate(start=start-1)
 
-all_ref_exons <- rbind(gencode_ref, ensembl_ref, refseq_ncbi_ref,refseq_ucsc ) %>% 
+
+
+all_ref_exons <- rbind(gencode_ref, ensembl_ref, refseq_ncbi,refseq_ucsc ) %>% 
     mutate(seqid=as.character(seqid), strand=as.character(strand)) %>% distinct
 save(all_ref_exons, file='rdata/all_ref_exons.Rdata')
 #ref_exon_full <- split(all_ref_exons, 1:nrow(all_ref_exons))
@@ -115,15 +113,30 @@ fully_novel_exons <- (!nv_start_in_ref) & (!nv_end_in_ref)# truely novel exon ha
 a3ss_novel_exons <-  (nv_start_in_ref) & (!nv_end_in_ref)# a3ss novel exon has a known start, new end
 a5ss_novel_exons <- (!nv_start_in_ref) & (nv_end_in_ref)# a5ss novel eoxn has new start, known end
 ri_novel_exons <- (nv_start_in_ref) & (nv_end_in_ref)# not a known exon, but starts and ends on known exons
+determine_overlap_Exons <-  function(df, ref){
+    ref_range <- GRanges(seqnames = ref$seqid, ranges = IRanges(start = ref$start,end= ref$end), strand = ref$strand)
+    nx_range <-  GRanges(seqnames = df$seqid, ranges = IRanges(start = df$start,end= df$end), strand = df$strand, 
+                         names=df$ljid)
+    k <- findOverlaps(nx_range, ref_range, select = 'first')# %>% as.data.frame %>% select(seqid=seqnames,strand, start, end, -width)
+    return(tibble(ljid=df$ljid,ss_exon=!is.na(k) ))
+    
+}
 
-#?why so many retained introns? are the intronic from all the samples getting amplified reads from each sample 
+
 novel_st_exons_in_rmats <- novel_st_exons_in_rmats %>%
     mutate(reclassified_event= case_when(fully_novel_exons ~ "novel_exon",
                                          a3ss_novel_exons ~ "A3SS",
                                          a5ss_novel_exons ~ "A5SS",
-                                         ri_novel_exons ~ "RI"))  %>% 
-    inner_join( incCounts) %>%  mutate(length= end -start, is.not_long=length <1500) %>% 
-    inner_join(select(gfc_gtf, transcript_id, seqid, strand, start, end)) %>% select(ljid, seqid, start, end, transcript_id, reclassified_event, everything())
+                                         ri_novel_exons ~ "RI")) %>% 
+    #mutate(length=end -start) %>% filter(length <=1500)
+    mutate(length= end -start, is.not_long=length <1500) 
+
+novel_st_exons_in_rmats <- determine_overlap_Exons(novel_st_exons_in_rmats %>% filter(reclassified_event=='novel_exon') %>% distinct,all_ref_exons) %>% 
+    left_join(novel_st_exons_in_rmats,.) %>%
+    mutate(ss_exon=replace_na(ss_exon, F), reclassified_event = replace(reclassified_event, ss_exon, 'subset_exon'), ss_exon=NULL) %>% 
+    inner_join( incCounts) %>% 
+    inner_join(select(gfc_gtf, transcript_id, seqid, strand, start, end)) %>% 
+    select(ljid, seqid, start, end, transcript_id, reclassified_event, everything())
 
 ###figure out skipped exon transcripts
 
@@ -131,7 +144,7 @@ gtf_se<- left_join(gfc_gtf, select(novel_string_tie_exons, seqid, strand, start,
                    by=c('seqid','strand' ,'start','end')) %>%
     mutate(is.novel=replace(is.novel, is.na(is.novel), F))
 skipped_exon_tx <- filter(gtf_se, grepl('MSTRG', oId)) %>% pull(transcript_id) %>% 
-{filter(gtf_se, transcript_id %in% .)} %>% group_by(transcript_id) %>% summarise(no_new_exon=all(!is.novel)) %>%
+    {filter(gtf_se, transcript_id %in% .)} %>% group_by(transcript_id) %>% summarise(no_new_exon=all(!is.novel)) %>%
     filter(no_new_exon)
 txid2gene <- filter(gfc_gtf, type=='transcript') %>% select(transcript_id, gene_name) %>% distinct %>% 
     mutate(gene_name=replace(gene_name, is.na(gene_name), transcript_id[is.na(gene_name)]))
@@ -141,3 +154,26 @@ nx_psi <- inner_join( nx_inc_cts%>%select(transcript_id, reclassified_event, lji
 nx_skipped_exon <- skipped_exon_tx %>% left_join(txid2gene)
 
 save(nx_inc_cts, nx_psi, nx_skipped_exon, file = exon_info_file )
+
+# 
+# gfc_gtf %>% filter(type == 'transcript') %>% mutate(sscore=999) %>%  select(seqid, start, end, transcript_id) %>% 
+#      write_tsv('testing/st_tx.bed', col_names = F)
+# gencode_comp_gtf <- rtracklayer::readGFF('ref/gencodeAno_comp.gtf')
+# gencode_comp_gtf %>% filter(type =='gene',!grepl('RP\\d', gene_name), !grepl('MIR', gene_name), !grepl('RF', gene_name)) %>% 
+#     mutate(score =999) %>% 
+#     select(seqid, start, end, gene_name) %>% 
+#     write_tsv('testing/gc_genes.txt', col_names = F)
+# #bedtools intersect -s -loj -a testing/st_tx.bed  -b testing/gc_genes.txt  > testing/overlap.bed
+# res <- read_tsv('testing/overlap.bed',col_names = F) %>% dplyr::rename(transcript_id=X4, gene_name =X8) %>% 
+#     select(transcript_id, gene_name) %>% distinct 
+# k <- res %>% group_by(transcript_id) %>% summarise(n=n()) %>% 
+#     filter(n>1, transcript_id %in% nx_inc_cts$transcript_id)
+# 
+# filter(res, transcript_id %in% k$transcript_id) %>% inner_join(nx_inc_cts) -> possible_fusion_gens
+# save(possible_fusion_gens, file ='~/NIH/eyeintegration_splicing/rdata/possible_fusion_genes.Rdata')
+
+#GRanges(seqnames = all_tx$seqid, ranges = IRanges(start = all_tx$start, end = all_tx$end), strand = )
+
+
+
+

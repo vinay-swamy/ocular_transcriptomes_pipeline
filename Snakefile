@@ -485,7 +485,7 @@ rule determineNovelTranscripts:
 
 rule makeBedforMosDepth:
     input: 'results/salmon_tissue_level_counts.Rdata', 'results/novel_exon_expression_tables.Rdata'
-    output: 'results/ref_exon_table.tsv', 'results/transcript_locations.bed', 'results/novel_exon_ref_exon_comparison_table.Rdata', 'results/exons_for_coverage_analysis.bed'
+    output: 'results/novel_exon_workspace.Rdata', 'results/exons_for_coverage_analysis.bed'
     shell:
         '''
         module load {R_version}
@@ -509,15 +509,12 @@ rule calculateExon_Intron_cov:
 
 rule analyze_Coverage:
     input: cov=lambda wildcards: output_from_mosdepth(sample_dict, wildcards.subtissue),\
-        novel_exon_exp_tab='results/novel_exon_expression_tables.Rdata',\
-        ref_exon_tab='results/ref_exon_table.tsv',\
-        exon_ca_bed='results/novel_exon_ref_exon_comparison_table.Rdata',\
-        intron_tab='results/intron_info_tab.tsv',\
+        exon_info_ws='results/novel_exon_workspace.Rdata',\
         fusion_gene_file='results/possible_fusion_genes.Rdata'
     output: 'results/exon_detection/{subtissue}.detected.tsv'
     shell:
         '''
-        Rscript scripts/rank_novel_exon.R {working_dir} {input.novel_exon_exp_tab} {input.ref_exon_tab} {input.exon_ca_bed}\
-        {input.intron_tab} {input.fusion_gene_file} {wildcards.subtissue} {sample_file} {stringtie_full_gtf} {output}
+        Rscript scripts/rank_novel_exons.R {working_dir} {input.exon_info_ws} {input.fusion_gene_file}\
+         {wildcards.subtissue} {sample_file} {stringtie_full_gtf} {output}
 
         '''

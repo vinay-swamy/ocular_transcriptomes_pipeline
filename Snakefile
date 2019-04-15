@@ -415,7 +415,7 @@ rule runrMATS:
         tissue={wildcards.tissue}
         module load {rmats_version}
         rmats --b1 {input[0]} --b2 ref/rmats_locs/synth.rmats.txt  -t paired  \
-         --readLength 130 --gtf {input[2]} --bi {input[1]} --od rmats_out/$tissue
+        --nthread 8  --readLength 130 --gtf {input[2]} --bi {input[1]} --od rmats_out/$tissue
         '''
 
 rule process_rmats_output:

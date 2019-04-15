@@ -2,32 +2,35 @@ library(tidyverse)
 library(matrixStats)
 
 
+
+args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
-novel_exon_exp_tabs <- args[2]
-ref_exon_tab <- args[3]
-exon_ca_bed <- args[4]
-intron_tab <- args[5]
-fusion_gene_files <- args[6]
-t_tissue <- args[7]
-sample_tab <- args[8]
-gtf_file <- args[9]
-outfile <- args[10]
+exon_info_workspace <- args[2]
+fusion_gene_file <- args[3]
+t_tissue <- args[4]
+sample_tab <- args[5]
+gtf_file <- args[6]
+outfile <- args[7]
 
-setwd('~/NIH/eyeintegration_splicing/')
-load('/Volumes/data/eyeintegration_splicing/results/novel_exon_expression_tables.Rdata')
-ref_exon_table <- read_tsv('/Volumes/data/eyeintegration_splicing/results/ref_exon_table.tsv')
-ref_bed <- read_tsv('/Volumes/data/eyeintegration_splicing/results/exons_for_coverage_analysis.bed', col_names = c('seqid', 'start', 'end'))
-intron_table <- read_tsv('/Volumes/data/eyeintegration_splicing/results/intron_info_tab.tsv') %>%  
+setwd(working_dir)
+load(exon_info_workspace)
+ref_exon_table <- ref_exon_tab
+intron_table <- intron_info_tab %>%  
      select(-tx, ljid=id) %>% distinct
-
-
-t_tissue <- 'RPE_Fetal.Tissue'
-sample_table <- read_tsv('sampleTableV4.tsv', col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
+sample_table <- read_tsv(sample_tab, col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
 samples <- filter(sample_table, subtissue == t_tissue, paired =='y') %>% pull(sample)
-cov_paths <- paste0('~/NIH/eyeintegration_splicing/coverage_files/', t_tissue,'/', samples, '.regions.bed.gz') %>% .[ file.exists(.)]
-t2g <- rtracklayer::readGFF('/Volumes/data/eyeintegration_splicing/results/all_tissues.combined.gtf') %>% filter(type =='transcript') %>% select(transcript_id, gene_name) %>% 
+cov_paths <- paste0('coverage_files/', t_tissue,'/', samples, '.regions.bed.gz')#
+exists <-  file.exists(cov_paths)
+samples <- samples[exists]
+cov_paths <- cov_paths[exists]
+
+t2g <- rtracklayer::readGFF(gtf_file) %>% filter(type =='transcript') %>% select(transcript_id, gene_name) %>% 
     mutate(gene_name=replace(gene_name, is.na(gene_name),transcript_id[is.na(gene_name)]))
 novel_exon_locs <- nx_inc_cts %>% filter(reclassified_event == 'novel_exon', is.not_long) %>%   select(seqid,strand, start, end, reclassified_event, gene_name, ljid) %>% distinct
+
+
+
+
 #novel_exon_locs %>% select(seqid, strand, start, end, gene_name) %>% distinct %>% dim
 #'TCONS_00133047'
 #load('/Volumes/data/eyeintegration_splicing/')
@@ -90,7 +93,7 @@ rank_exons <-  function(zsc, intron_diff, scores, t_name){
     return(res )
     
 }
-load('rdata/possible_fusion_genes.Rdata')
+load(fusion_gene_file)
 #fusions <- filter(possible_fusion_gens, ljid %in% exon_scoring$ljid)
 exon_scoring <- rank_exons(all_zscores, all_icov, c(-1, .04), 'num_samps_detected') %>% 
     filter(!ljid %in% possible_fusion_gens$ljid) #%>% arrange(desc(num_samps_detected))
@@ -106,4 +109,4 @@ detect_co <- round((ncol(exon_scoring) -1)/3)
 keep_exons <- rowSums(exon_scoring[,-1]) > detect_co
 detected_exons <- exon_scoring[keep_exons,]
 
-write_tsv(outfile)
+write_tsv(detected_exons, outfile)

@@ -75,12 +75,12 @@ rmats_minimally_expressed <- incCounts
 #all_ref_exons
 gencode_ref<-  rtracklayer::readGFF(ref_gtf) %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid))
-ensembl_ref <- rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/ensembl_r95.gtf') %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
+ensembl_ref <- rtracklayer::readGFF('ref/ensembl_r95.gtf') %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid), seqid= paste0('chr', seqid))
 refseq_ucsc <- rtracklayer::readGFF('ref/ucsc_refseq.gtf') %>% mutate(start=start-1, seqid=as.character(seqid)) #%>% 
 gene2seq <- refseq_ucsc %>%  filter(type =='transcript') %>%  select(chroms=seqid, gene=gene_name) %>% distinct
 refseq_ucsc <- refseq_ucsc %>% filter(type=='exon') %>% select(seqid, strand, start, end) %>% distinct
-refseq_ncbi <- rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/refseq_r95.gff') %>% as.data.frame() %>% 
+refseq_ncbi <- rtracklayer::readGFF('ref/refseq_r95.gff') %>% as.data.frame() %>% 
     left_join(gene2seq, by='gene') %>% filter(type=='exon') %>%  select(-seqid) %>% select(seqid=chroms, strand, start, end) %>% 
     filter(!is.na(seqid)) %>% distinct %>% mutate(start=start-1)
 
@@ -163,7 +163,9 @@ save(nx_inc_cts, nx_psi, nx_skipped_exon, file = exon_info_file )
 #     mutate(score =999) %>% 
 #     select(seqid, start, end, gene_name) %>% 
 #     write_tsv('testing/gc_genes.txt', col_names = F)
-# #bedtools intersect -s -loj -a testing/st_tx.bed  -b testing/gc_genes.txt  > testing/overlap.bed
+#com='bedtools intersect -s -loj -a testing/st_tx.bed  -b testing/gc_genes.txt  > testing/overlap.bed'
+#system2(command = com, wait = T)
+
 # res <- read_tsv('testing/overlap.bed',col_names = F) %>% dplyr::rename(transcript_id=X4, gene_name =X8) %>% 
 #     select(transcript_id, gene_name) %>% distinct 
 # k <- res %>% group_by(transcript_id) %>% summarise(n=n()) %>% 

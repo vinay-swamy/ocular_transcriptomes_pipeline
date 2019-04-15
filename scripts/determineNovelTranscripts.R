@@ -163,7 +163,9 @@ save(nx_inc_cts, nx_psi, nx_skipped_exon, file = exon_info_file )
 #     mutate(score =999) %>% 
 #     select(seqid, start, end, gene_name) %>% 
 #     write_tsv('testing/gc_genes.txt', col_names = F)
-# #bedtools intersect -s -loj -a testing/st_tx.bed  -b testing/gc_genes.txt  > testing/overlap.bed
+#com='bedtools intersect -s -loj -a testing/st_tx.bed  -b testing/gc_genes.txt  > testing/overlap.bed'
+#system2(command = com, wait = T)
+
 # res <- read_tsv('testing/overlap.bed',col_names = F) %>% dplyr::rename(transcript_id=X4, gene_name =X8) %>% 
 #     select(transcript_id, gene_name) %>% distinct 
 # k <- res %>% group_by(transcript_id) %>% summarise(n=n()) %>% 

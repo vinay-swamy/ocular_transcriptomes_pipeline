@@ -75,12 +75,12 @@ rmats_minimally_expressed <- incCounts
 #all_ref_exons
 gencode_ref<-  rtracklayer::readGFF(ref_gtf) %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid))
-ensembl_ref <- rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/ensembl_r95.gtf') %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
+ensembl_ref <- rtracklayer::readGFF('ref/ensembl_r95.gtf') %>% mutate(start=start - 1)  %>% filter(type =='exon') %>% select(seqid, strand,start,end) %>% distinct %>% 
     mutate(seqid=as.character(seqid), seqid= paste0('chr', seqid))
 refseq_ucsc <- rtracklayer::readGFF('ref/ucsc_refseq.gtf') %>% mutate(start=start-1, seqid=as.character(seqid)) #%>% 
 gene2seq <- refseq_ucsc %>%  filter(type =='transcript') %>%  select(chroms=seqid, gene=gene_name) %>% distinct
 refseq_ucsc <- refseq_ucsc %>% filter(type=='exon') %>% select(seqid, strand, start, end) %>% distinct
-refseq_ncbi <- rtracklayer::readGFF('~/NIH/eyeintegration_splicing/ref/refseq_r95.gff') %>% as.data.frame() %>% 
+refseq_ncbi <- rtracklayer::readGFF('ref/refseq_r95.gff') %>% as.data.frame() %>% 
     left_join(gene2seq, by='gene') %>% filter(type=='exon') %>%  select(-seqid) %>% select(seqid=chroms, strand, start, end) %>% 
     filter(!is.na(seqid)) %>% distinct %>% mutate(start=start-1)
 

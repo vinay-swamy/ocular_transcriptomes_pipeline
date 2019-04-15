@@ -51,13 +51,13 @@ def tissue_to_bam(subtissue, sample_dict, bam_dir='/data/OGVFB_BG/STARbams_reali
             res.append(bam_dir+'{}/Sorted.out.bam'.format(sample))
     return(res)
 
-def output_for_mosdepth(sample_dict, tissue_list):
+
+def output_from_mosdepth(sample_dict, tissue):
     res=[]
     for sample in sample_dict.keys():
-        if sample_dict[sample]['subtissue'] in tissue_list :
+        if sample_dict[sample]['subtissue'] == tissue :
             res.append('coverage_files/{tissue}/{sampl}.regions.bed.gz'.format(tissue=sample_dict[sample]['subtissue'], sampl=sample))
     return(res)
-
 def salmon_input(id,sample_dict,fql):
     paired=sample_dict[id]['paired']
     id= fql + 'fastq_files/' + id
@@ -106,7 +106,7 @@ rule all:
     input:'results/salmon_tx_quant.Rdata', 'results/salmon_gene_quant.Rdata',\
      'results/stringtie_alltissues_cds_b37.gff3','results/hmmer/domain_hits.tsv',\
      expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']),\
-     'results/results_bw.Rdata'
+     expand('results/exon_detection/{subtissue}.detected.tsv', subtissue=subtissues)
      #expand('bigwigs/{id}.bw', id=sample_names), expand('tissue_bigwigs/{tissue}.bw', tissue=subtissues),
      #'results/exons_for_coverage_analysis.bed'
      #output_for_mosdepth(sample_dict, eye_tissues)
@@ -498,31 +498,26 @@ rule calculateExon_Intron_cov:
      bam='/data/OGVFB_BG/STARbams_realigned/{sample}/Sorted.out.bam',\
      tx_bed='results/transcript_locations.bed'
     output:exon_cov='coverage_files/{tissue}/{sample}.regions.bed.gz',\
-     per_base_cov= 'coverage_files/{tissue}/{sample}.per-base.bed.gz',\
-     intron_cov='coverage_files/{tissue}/{sample}.introns-per-base.bed.gz',\
-     per_gene_intron_cov='coverage_files/{tissue}/{sample}.intron_per_gene.bed.gz'
+     per_base_cov= 'coverage_files/{tissue}/{sample}.per-base.bed.gz'
     shell:
         '''
         subtissue={wildcards.tissue}
         sample={wildcards.sample}
         module load {mosdepth_version}
         mosdepth --by {input.exon_bed} coverage_files/$subtissue/$sample {input.bam}
-
-        module load {bedtools_version}
-        bedtools subtract -a {output.per_base_cov} -b {input.exon_bed} |
-        bedtools intersect -loj  -a {input.tx_bed} -b stdin  |
-        gzip -c  - > {output.intron_cov}
-
-        module load {R_version}
-        Rscript scripts/calcIntronCov.R {output.intron_cov} $sample {output.per_gene_intron_cov}
-
         '''
 
 rule analyze_Coverage:
-    input: output_for_mosdepth(sample_dict, subtissues)
-    output: 'results/results_bw.Rdata'
+    input: cov=lambda wildcards: output_from_mosdepth(sample_dict, wildcards.subtissue),\
+        novel_exon_exp_tab='results/novel_exon_expression_tables.Rdata',\
+        ref_exon_tab='results/ref_exon_table.tsv',\
+        exon_ca_bed='results/novel_exon_ref_exon_comparison_table.Rdata',\
+        intron_tab='results/intron_info_tab.tsv',\
+        fusion_gene_file='results/possible_fusion_genes.Rdata'
+    output: 'results/exon_detection/{subtissue}.detected.tsv'
     shell:
         '''
-        touch {output}
+        Rscript scripts/rank_novel_exon.R {working_dir} {input.novel_exon_exp_tab} {input.ref_exon_tab} {input.exon_ca_bed}\
+        {input.intron_tab} {input.fusion_gene_file} {wildcards.subtissue} {sample_file} {stringtie_full_gtf} {output}
 
         '''

@@ -103,7 +103,16 @@ ref_exon_bed <- intron_bed  %>%  rbind(ref_exon_bed) %>% distinct
 #? is it better to use all ref exons, (even ones not expresed in eye) and then take the exon that creates the longest coverage between
 ###A3SS and RI's :  we can treat RI's as a3ss in practice as they stradle known exons, and we assume that knownn exons will be covered the sameish
 # okay this looks really confusing, but its not that bad. both A3/A5 events can be broken into 
-df <- filter(nx_inc_cts, reclassified_event %in% c('A3SS','RI'), is.not_long) %>% 
+
+RI_long <- filter(nx_inc_cts, reclassified_event =='RI', is.not_long) %>% 
+    select(ljid,reclassified_event,seqid, strand, start, new_end=end) %>% 
+    distinct %>% inner_join( all_ref_exons %>% rename(ref_end=end)) %>% rename(new_start=start, end=new_end) %>% 
+    inner_join( all_ref_exons %>% rename(ref_start=start)) %>% rename(s_end=end, s_start=new_start, l_start=ref_start,l_end=ref_end ) %>%
+    mutate(class='long', delta=NA) %>% select(ljid, reclassified_event, seqid, strand, class, delta, contains('s_'), contains('l_'))
+
+
+
+df <- filter(nx_inc_cts, reclassified_event =='A3SS', is.not_long) %>% 
     select(ljid,reclassified_event,seqid, strand, start, new_end=end) %>% 
     distinct %>% inner_join( all_ref_exons %>% rename(ref_end=end)) %>% 
     mutate(delta=new_end -ref_end) 
@@ -147,13 +156,13 @@ data.frame(df[i,], ref_start=df[i-1,'start'], ref_end=df[i-1,'end'])
     bind_rows %>% mutate(class='nx', ref_id=paste('nx', 1:nrow(.), sep = '_'))
 
 
-ass_tab <- rbind(a5_long, a5_short, A3_long, A3_short)
+ass_tab <- rbind(a5_long, a5_short, A3_long, A3_short, RI_long)
 
 complete_bed <- rbind(ass_tab %>% select(seqid, start=s_start, end=s_end),
                       ass_tab %>% select(seqid, start=l_start, end=l_end),
                       nx_all %>% select(seqid, start, end),
                       nx_all %>% select(seqid, start=ref_start,end=ref_end),
-                      stringsAsFactors=F) %>% rbind(ref_exon_bed) %>% distinct
+                      stringsAsFactors=F) %>% rbind(ref_exon_bed) %>% distinct %>% filter(!is.na(seqid), !is.na(start),!is.na(end))
 
 true_novel_exons <- nx_all
 ref_bed <- complete_bed

@@ -253,12 +253,18 @@ rule merge_tissue_gtfs:
         Rscript scripts/fix_gene_id.R {working_dir} ref/gffread_dir/all_tissues.combined.gtf {output[0]}
         '''
 #gffread v0.9.12.Linux_x86_64/
+'''
+-have to remove ambigous strands fromt the gtf, but I dont wanna make it permanent
+
+'''
+
 rule make_tx_fasta:
     input:'gffread/gffread', stringtie_full_gtf
     output: 'results/combined_stringtie_tx.fa'
     shell:
         '''
-        ./gffread/gffread -w {output[0]} -g {ref_PA} {input[0]}
+        cat {stringtie_full_gtf} | tr '*' '+' > /tmp/all_tissue.combined.gtf
+        ./gffread/gffread -w {output[0]} -g {ref_PA}  /tmp/all_tissue.combined.gtf
         '''
 
 rule run_trans_decoder:
@@ -495,8 +501,7 @@ rule makeBedforMosDepth:
 
 rule calculateExon_Intron_cov:
     input:exon_bed='results/exons_for_coverage_analysis.bed',\
-     bam='/data/OGVFB_BG/STARbams_realigned/{sample}/Sorted.out.bam',\
-     tx_bed='results/transcript_locations.bed'
+     bam='/data/OGVFB_BG/STARbams_realigned/{sample}/Sorted.out.bam'
     output:exon_cov='coverage_files/{tissue}/{sample}.regions.bed.gz',\
      per_base_cov= 'coverage_files/{tissue}/{sample}.per-base.bed.gz'
     shell:
@@ -514,6 +519,7 @@ rule analyze_Coverage:
     output: 'results/exon_detection/{subtissue}.detected.tsv'
     shell:
         '''
+        modlue load {R_version}
         Rscript scripts/rank_novel_exons.R {working_dir} {input.exon_info_ws} {input.fusion_gene_file}\
          {wildcards.subtissue} {sample_file} {stringtie_full_gtf} {output}
 

@@ -182,7 +182,7 @@
                 "partition" : "quick",
                 "cpus-per-task" : "1",
                 "time" : "2:00:00",
-                "mem" : "24g",
+                "mem" : "32g",
                 "output"  : "00log/{rule}_{wildcards}.out",
                 "error" : "00log/{rule}_{wildcards}.err",
                 "extra" : ""

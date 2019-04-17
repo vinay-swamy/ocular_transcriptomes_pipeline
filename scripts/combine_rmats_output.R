@@ -1,8 +1,8 @@
 #setwd('~/NIH/eyeintegration_splicing/')
 library(tidyverse)
-# args <-c('/Volum',
+# args <-c('/Volumes/data/eyesplice_rerun/',
 #          'PSI',
-#          'results_b38/all_tissues.incCts.tsv')
+#          'results/all_tissues.PSI.tsv')
 args <- commandArgs(trailingOnly = T)
 working_dir=args[1]
 type=args[2]
@@ -15,6 +15,7 @@ combine_allTissues <- function(event, type){
     tissues <- strsplit(files0,'/') %>% sapply(function(x) x[[2]])
     event_df_list <- lapply(files0,function(x)suppressMessages(read_tsv(x)))
     keep <-  lapply(event_df_list,nrow) > 0 & tissues != 'synth'
+    if(sum(keep)==0) return(event_df_list[[1]])
     event_df_list <- event_df_list[keep]
     all_tissue_df <- reduce(event_df_list, full_join)
     all_tissue_df[is.na(all_tissue_df)] <- 0

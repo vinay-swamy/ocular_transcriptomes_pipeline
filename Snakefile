@@ -519,7 +519,7 @@ rule analyze_Coverage:
     output: 'results/exon_detection/{subtissue}.detected.tsv'
     shell:
         '''
-        modlue load {R_version}
+        module load {R_version}
         Rscript scripts/rank_novel_exons.R {working_dir} {input.exon_info_ws} {input.fusion_gene_file}\
          {wildcards.subtissue} {sample_file} {stringtie_full_gtf} {output}
 

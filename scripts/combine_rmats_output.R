@@ -30,7 +30,7 @@ all_events_df <- lapply(all_events, function(x) combine_allTissues(event = x, ty
 # might be a SE but also called as an MXE, involving the same exons ; a lot of exons are called twice like this, but   
 # from looking at a few of these, it seems like the SE events have the most reads; so for now I'm going to just drop the duplicated ones
 # most likely going to use some kind of read threshold when classifying these events
-all_events_df_f <- all_events_df[!duplicated(all_events_df[,c('seqid','strand','start','end')]),]
+all_events_df_f <- all_events_df[!duplicated(all_events_df[,c('seqid','strand','start','end')]),] 
 write_tsv(all_events_df_f, outfile)
                          
 

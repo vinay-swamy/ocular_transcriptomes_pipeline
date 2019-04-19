@@ -1,6 +1,5 @@
 library(tidyverse)
 
-
 args=c('/Volumes/data/eyeintegration_splicing/',
        'results/all_tissues.combined.gtf',
        'ref/gencodeAno_comp.gtf',
@@ -24,8 +23,8 @@ exon_bed_file <- args[8]
 setwd(working_dir)
 ###part 1 make reference exon set using eyeintegration tpms
 load(exon_info_file)
-gtf <- rtracklayer::readGFF(ref_gtf_file) %>% mutate(start =start -1)
-t2g <- gtf %>%filter(type =='transcript') %>% select(gene_name, transcript_id) %>% distinct
+ref_gtf <- rtracklayer::readGFF(ref_gtf_file) %>% mutate(start =start -1)
+t2g <- ref_gtf %>%filter(type =='transcript') %>% select(gene_name, transcript_id) %>% distinct
 sample_design <- read_tsv('sampleTableV4.tsv', col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
 tx_quant <- read_tsv('ref/2019_tx_TPM_03.tsv.gz') %>% select(ID, which(colnames(.) %in% sample_design$sample))  
 tx_quant <- tx_quant %>% mutate(transcript_id=str_split(ID, '\\(|\\)') %>% sapply(function(x) x[[2]]),  ID=NULL) %>% inner_join(t2g, .)
@@ -42,7 +41,7 @@ top_tx_by_tissue_2 <-  subtissues %>% lapply(function(x) filter(sample_design, s
 
 colnames(top_tx_by_tissue_2) <- c('gene_name', 'transcript_id',paste0('exp.', subtissues))
 top_tx_by_tissue_2[is.na(top_tx_by_tissue_2)] <- 0
-ref_exon_tab <- filter(gtf, type =='exon') %>% select(seqid,strand, start,end, transcript_id) %>% inner_join(top_tx_by_tissue_2) %>% distinct
+ref_exon_tab <- filter(ref_gtf, type =='exon') %>% select(seqid,strand, start,end, transcript_id) %>% inner_join(top_tx_by_tissue_2) %>% distinct
 #write_tsv(ref_exon_tab, ref_exon_table)
 nx_bed <- nx_inc_cts %>% select(seqid, start, end) %>% distinct
 ref_exon_bed <-ref_exon_tab %>% select(seqid, start, end) %>% distinct %>% rbind(nx_bed)
@@ -66,10 +65,10 @@ all_ref_exons <- filter(ref_gtf, type=='exon') %>% select(seqid, strand,start,en
     mutate(seqid=as.character(seqid)) %>% distinct
 ############################################################################################
 #local intron cov
-gtf_ano <- nx_inc_cts %>% select(seqid, strand, start, end, ljid) %>% distinct %>% mutate(is.novel=T) %>% 
-    left_join(gfc_gtf, .) %>% filter(type=='exon') %>% mutate(is.novel=replace_na(is.novel, F)) 
+gtf_ano <- incCounts %>% select(seqid, strand, start, end, ljid) %>% distinct %>% mutate(is.rmats=T) %>% 
+    left_join(gfc_gtf, .) %>% filter(type=='exon') %>% mutate(is.rmats=replace_na(is.rmats, F)) 
 calc_intron <- function(df){
-    locs <- which(df$is.novel)
+    locs <- which(df$is.rmats)
     k <- lapply(locs, function(l){
         if((l-1)>0 &((l+1)<=nrow(df))){
             us_e <- c(df[(l-1),'end'],df[l,'end'])
@@ -91,7 +90,8 @@ calc_intron <- function(df){
 }
 
 
-intron_info_tab <- gtf_ano %>% filter(is.novel) %>% pull(transcript_id) %>% {filter(gtf_ano, transcript_id %in% . , type=='exon')} %>%
+
+intron_info_tab <- gtf_ano %>% filter(is.rmats) %>% pull(transcript_id) %>% {filter(gtf_ano, transcript_id %in% . , type=='exon')} %>%
     split(.$transcript_id) %>%  lapply(calc_intron) %>% bind_rows %>% filter(!is.na(seqid), !is.na(end)) 
 #write_tsv(intron_info_tab,'results/intron_info_tab.tsv')
 intron_bed <-  intron_info_tab %>% select(seqid, start, end) %>% distinct
@@ -99,7 +99,23 @@ intron_bed <-  intron_info_tab %>% select(seqid, start, end) %>% distinct
 
 ref_exon_bed <- intron_bed  %>%  rbind(ref_exon_bed) %>% distinct
 
+########
+#novel_tx's
+novel_loci_tab <- filter(gfc_gtf, type =='transcript') %>% filter(is.na(gene_name)) %>% pull(transcript_id) %>% 
+    {filter(gfc_gtf, transcript_id %in% ., type =='exon')} %>% unite(ljid, transcript_id, exon_number,remove = F) %>% 
+    select(seqid, strand, start, end, ljid, transcript_id) %>% mutate(is.rmats=T)
 
+gtf_loci_ano <- novel_loci_tab %>% select(seqid, strand, start, end, ljid) %>% distinct %>% mutate(is.rmats=T) %>% 
+    left_join(gfc_gtf, .) %>% filter(type=='exon') %>% mutate(is.rmats=replace_na(is.rmats, F)) 
+    
+novel_loci_intron_tab <- gtf_loci_ano %>% filter(is.rmats) %>% pull(transcript_id) %>% {filter(gtf_ano, transcript_id %in% . , type=='exon')} %>%
+    split(.$transcript_id) %>%  lapply(calc_intron) %>% bind_rows %>% filter(!is.na(seqid), !is.na(end)) 
+
+ref_exon_bed <- rbind( ref_exon_bed, novel_loci_tab %>% select(seqid, start, end),
+                       novel_loci_intron_tab %>%  select(seqid, start,end))
+    
+
+#######
 #? is it better to use all ref exons, (even ones not expresed in eye) and then take the exon that creates the longest coverage between
 ###A3SS and RI's :  we can treat RI's as a3ss in practice as they stradle known exons, and we assume that knownn exons will be covered the sameish
 # okay this looks really confusing, but its not that bad. both A3/A5 events can be broken into 
@@ -166,7 +182,7 @@ complete_bed <- rbind(ass_tab %>% select(seqid, start=s_start, end=s_end),
 
 true_novel_exons <- nx_all
 ref_bed <- complete_bed
-save(ass_tab, true_novel_exons ,ref_exon_tab, intron_info_tab, nx_inc_cts, nx_psi, nx_skipped_exon,ref_bed,
-     file = exon_info_workspace)
+save(ass_tab, true_novel_exons ,ref_exon_tab, intron_info_tab, nx_inc_cts, nx_psi, nx_skipped_exon,ref_bed, 
+     novel_loci_intron_tab, novel_loci_tab, file = exon_info_workspace)
 write_tsv(complete_bed, exon_bed_file, col_names = F)
 

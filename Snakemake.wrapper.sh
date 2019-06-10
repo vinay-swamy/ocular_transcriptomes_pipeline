@@ -3,7 +3,7 @@
 # to run snakemake as batch job
 # run in the data folder for this project
 
-module load snakemake/5.1.3 || exit 1
+module load snakemake/5.4.4 || exit 1
 
 mkdir -p 00log
 

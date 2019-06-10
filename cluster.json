@@ -20,17 +20,6 @@
 		"error" : "00log/{rule}_{wildcards}.err",
 		"extra" : ""
 	},
-	"rebuild_star_index" :
-	{
-		"partition" : "norm",
-		"time" : "8:00:00",
-		"cpus-per-task" : "16",
-		"mem" : "48g",
-		"output"  : "00log/{rule}_{wildcards}.out",
-		"error" : "00log/{rule}_{wildcards}.err",
-		"extra" : ""
-	},
-
 	"run_STAR_alignment" :
 	{
 		"partition" : "norm",
@@ -61,16 +50,6 @@
 	{
 		"mem" : "48g"
 	},
-	"realign_STAR" :
-	{
-		"partition" : "norm",
-		"time" : "12:00:00",
-		"cpus-per-task" : "8",
-		"mem" : "48g",
-		"output"  : "00log/{rule}_{wildcards}.out",
-		"error" : "00log/{rule}_{wildcards}.err",
-		"extra" : ""
-	},
 	"runrMATS" :
 	{
 		"partition" : "norm",
@@ -81,17 +60,6 @@
 		"error" : "00log/{rule}_{wildcards}.err",
 		"extra" : ""
 	},
-	"gtf_to_gff3" :
-        {
-                "partition" : "norm",
-                "time" : "08:00:00",
-                "cpus-per-task" : "12",
-                "mem" : "108g",
-                "output"  : "00log/{rule}_{wildcards}.out",
-                "error" : "00log/{rule}_{wildcards}.err",
-                "extra" : ""
-        },
-
 	"run_stringtie" :
 	{
 		"partition" : "norm",
@@ -110,84 +78,16 @@
                 "extra" : ""
 
 	},
-        "remove_low_used_tx":
+	"calculate_cov":
 	{
-                "partition" : "norm",
-                "cpus-per-task" : "4",
-                "time" : "4:00:00",
-                "mem" : "32g",
-                "output"  : "00log/{rule}_{wildcards}.out",
-                "error" : "00log/{rule}_{wildcards}.err",
-                "extra" : ""
+				"partition" : "quick",
+				"cpus-per-task" : "1",
+				"time" : "2:00:00",
+				"mem" : "32g",
+				"output"  : "00log/{rule}_{wildcards}.out",
+				"error" : "00log/{rule}_{wildcards}.err",
+				"extra" : ""
 
-        },
-
-	"rerun_salmon":
-	{
-                "partition" : "norm",
-                "cpus-per-task" : "4",
-                "time" : "4:00:00",
-                "mem" : "32g",
-                "output"  : "00log/{rule}_{wildcards}.out",
-                "error" : "00log/{rule}_{wildcards}.err",
-                "extra" : ""
-
-	},
-        "bam_to_bigwig":
-        {
-                "partition" : "norm",
-                "cpus-per-task" : "4",
-                "time" : "24:00:00",
-                "mem" : "32g",
-                "output"  : "00log/{rule}_{wildcards}.out",
-                "error" : "00log/{rule}_{wildcards}.err",
-                "extra" : ""
-
-        },
-        "sort_and_index_bams":
-        {
-                "partition" : "norm",
-                "cpus-per-task" : "4",
-                "time" : "12:00:00",
-                "mem" : "32g",
-                "output"  : "00log/{rule}_{wildcards}.out",
-                "error" : "00log/{rule}_{wildcards}.err",
-                "extra" : ""
-
-        },
-        "make_tissue_bams":
-        {
-                "partition" : "norm",
-                "cpus-per-task" : "4",
-                "time" : "36:00:00",
-                "mem" : "96g",
-                "output"  : "00log/{rule}_{wildcards}.out",
-                "error" : "00log/{rule}_{wildcards}.err",
-                "extra" : ""
-
-        },
-        "tisbam_to_bigwig":
-        {
-                "partition" : "norm",
-                "cpus-per-task" : "4",
-                "time" : "24:00:00",
-                "mem" : "96g",
-                "output"  : "00log/{rule}_{wildcards}.out",
-                "error" : "00log/{rule}_{wildcards}.err",
-                "extra" : ""
-
-        },
-        "calculateExon_Intron_cov":
-        {
-                "partition" : "quick",
-                "cpus-per-task" : "1",
-                "time" : "2:00:00",
-                "mem" : "32g",
-                "output"  : "00log/{rule}_{wildcards}.out",
-                "error" : "00log/{rule}_{wildcards}.err",
-                "extra" : ""
-
-        }
-
+	}
 
 }

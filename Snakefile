@@ -8,6 +8,19 @@ notes:
 -the 5.2 version requires specifying directorys in output section of rule iwth directory(). Biowulf currently using 5.1
 -need to make a rule to download all Gencode refs
 
+06/10/19 changes
+- I added way to much downstream stuff to the pipeline, assuming that the splicing/trnascriptome stuff was more accurate
+  than it actually was, so I removed a lot stuff,  hmmer, vonverting to b37, getting a gff3, to focus more on improving
+  the accuracy of the exon detections
+- using the comprehensive gencode annotation for everything
+- no longer realigning to stringtie gtf, this caused a lot of problems, an it makes a little more sense over all now,
+  as both tools are blind to each other
+- strategy for imporving - use a model trained on exons that get longer/shorter present in reference annotation
+    - a model is trained for each sample, and then potentially discovered exons are run through it for each smaple
+    - the model uses the bp level count info at the boundary of an exon getting longer/shorter.
+    - more often an exon is found th emore likely its actually there
+- after I get this working, then ill add the downstream stuff back later
+
 02/12/19 Changes
 -all software versioned in config file
 -added hmmscan protein domain search
@@ -21,7 +34,6 @@ notes:
 - restructured outputs so things are a little more organized
 - only using paired samples for rmats
 - finally got rid of the shitty salmon command
-
 **************REMEMBER TO CHANGE THE WORKING DIR IN THE CONFIG FILE IF YOU RERUN*********
 '''
 import subprocess as sp
@@ -50,9 +62,9 @@ def salmon_input(id,sample_dict,fql):
         return('-1 {s}_1.fastq.gz -2 {s}_2.fastq.gz'.format(s=id))
     else:
         return('-r {}.fastq.gz'.format(id))
-def build_to_fasta_file(build, conf= config):
+def build_to_fasta_file(build):
     if build == 'gencode':
-        return('ref/gencode_comp_ano.gtf')# hard coded for now, will need to add more later
+        return('ref/gencode_tx_ref.fa')# hard coded for now, will need to add more later
 
 
 #sample information
@@ -85,12 +97,13 @@ ref_GTF='ref/gencode_comp_ano.gtf'
 ref_genome='ref/gencode_genome.fa'
 fql=config['fastq_path']
 bam_path=config['bam_path']
-stringtie_full_gtf='results/all_tissues.combined.gtf'
+stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 rule all:
-    input:stringtie_full_gtf,
-     expand('results/all_tissues.{type}.tsv', type=['incCts','PSI']),\
-     expand('data/cleaned/{sample}_bp_features.tsv', sample=sample_names)
+    input:stringtie_full_gtf,\
+    'data/seqs/best_orfs.transdecoder.pep',\
+     expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI']),\
+     expand('data/cleaned_cov/{sample}_bp_features.tsv.gz', sample=sample_names)
 '''
 ****PART 1**** download files and align to genome
 -still need to add missing fastq files
@@ -135,7 +148,7 @@ rule  build_gffread:
 
 rule build_STARindex:
     input: ref_genome, ref_GTF
-    output:STARindex
+    output:directory(STARindex)
     shell:
         '''
         module load {STAR_version}
@@ -205,12 +218,13 @@ rule run_salmon:
         '''
 
 rule aggregate_salmon_counts:
-    input: expand('quant_files_{{build}}/{sampleID}/quant.sf',sampleID=sample_names)
+    input: qfiles=expand('quant_files_{{build}}/{sampleID}/quant.sf',sampleID=sample_names), gtf=ref_GTF
+    params: qfolder= lambda wildcards: 'quant_files_'+ wildcards.build
     output: 'rdata/{build}_tx_quant.Rdata', 'rdata/{build}_gene_quant.Rdata'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/makeCountTables.R {working_dir} {stringtie_full_gtf} {output}
+        Rscript scripts/makeCountTables.R {working_dir} {input.gtf} {params.qfolder} {output}
         '''
 
 
@@ -241,33 +255,33 @@ rule run_stringtie:
     shell:
         '''
         module load {stringtie_version}
-        stringtie {input[0]} -o {output[0]} -p 8 -G ref/gencodeAno_bsc.gtf
+        stringtie {input[0]} -o {output[0]} -p 8 -G {ref_GTF}
         '''
 #gffread v0.9.12.Linux_x86_64/
 rule merge_gtfs_by_tissue:
     input: lambda wildcards: tissue_to_gtf(wildcards.tissue, sample_dict)
-    output: 'ref/tissue_gtfs/{tissue}_st.gtf'
+    output: 'data/gtfs/tissue_gtfs/{tissue}_st.gtf'
     shell:
         '''
         pattern={wildcards.tissue}
         num=$(awk -v pattern="$pattern" '$4==pattern' {sample_file} | wc -l)
         k=3
 	    module load {stringtie_version}
-        stringtie --merge -G ref/gencodeAno_bsc.gtf -l {wildcards.tissue}_MSTRG -F $((num/k)) -T $((num/k)) -o {output[0]} {input}
+        stringtie --merge -G {ref_GTF} -l {wildcards.tissue}_MSTRG -F $((num/k)) -T $((num/k)) -o {output[0]} {input}
         '''
 
 
 # the Rscript is because multiple transcripts mapping to different genes some times get called under the same gene_name
 rule merge_tissue_gtfs:
-    input: expand('ref/tissue_gtfs/{tissue}_st.gtf',tissue=tissues)
-    output: stringtie_full_gtf, 'results/all_tissues.stringtie_merge.gtf'
+    input: expand('data/gtfs/tissue_gtfs/{tissue}_st.gtf',tissue=tissues)
+    output: stringtie_full_gtf, 'data/gtfs/all_tissues.stringtie_merge.gtf'
     shell:
         '''
         module load {stringtie_version}
-        stringtie --merge -G ref/gencodeAno_bsc.gtf  -o {output[1]} {input}
+        stringtie --merge -G {ref_GTF}  -o {output[1]} {input}
         mkdir -p ref/gffread_dir
         module load {gffcompare_version}
-        gffcompare -r ref/gencodeAno_bsc.gtf -o ref/gffread_dir/all_tissues {input}
+        gffcompare -r {ref_GTF} -o ref/gffread_dir/all_tissues {input}
         module load {R_version}
         Rscript scripts/fix_gene_id.R {working_dir} ref/gffread_dir/all_tissues.combined.gtf {output[0]}
         '''
@@ -279,30 +293,31 @@ rule merge_tissue_gtfs:
 
 rule make_tx_fasta:
     input:'gffread/gffread', stringtie_full_gtf
-    output: 'results/combined_stringtie_tx.fa'
+    output: 'data/seqs/combined_stringtie_tx.fa'
     shell:
         '''
         cat {stringtie_full_gtf} | tr '*' '+' > /tmp/all_tissue.combined.gtf
-        ./gffread/gffread -w {output[0]} -g {ref_PA}  /tmp/all_tissue.combined.gtf
+        ./gffread/gffread -w {output[0]} -g {ref_genome}  /tmp/all_tissue.combined.gtf
         '''
 
 rule run_trans_decoder:
-    input:'results/combined_stringtie_tx.fa'
-    output:'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3', \
-    'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
+    input:'data/seqs/combined_stringtie_tx.fa'
+    output:'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3', \
+    'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
     shell:
         '''
-        mkdir transdecoder
+        mkdir -p transdecoder
         cd transdecoder
         module load {TransDecoder_version}
         TransDecoder.LongOrfs -t ../{input}
         TransDecoder.Predict --single_best_only -t ../{input}
-        mv combined_stringtie_tx.fa.transdecoder.*  ../results/transdecoder_results/
+        mkdir -p ../data/seqs/transdecoder_results/
+        mv combined_stringtie_tx.fa.transdecoder.*  ../data/seqs/transdecoder_results/
         '''
 
 rule clean_pep:
-    input:'results/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
-    output:pep='results/best_orfs.transdecoder.pep', meta_info='ref/pep_fasta_meta_info.tsv', len_cor_tab='results/len_cor_tab.tsv'
+    input:'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
+    output:pep='data/seqs/best_orfs.transdecoder.pep', meta_info='data/seqs/pep_fasta_meta_info.tsv', len_cor_tab='data/seqs/len_cor_tab.tsv'
     shell:
         '''
         python3 scripts/clean_pep.py {input} /tmp/tmpvs.fasta {output.meta_info}
@@ -325,12 +340,12 @@ rule preprMats_running:
         cat ref/subtissues.txt | while read t
         do
             prefix={params.bam_dir}/STARbams/
-            suffix=/$t.rmats.txt
+            suffix=/Sorted.out.bam
             grep $t {sample_file} |\
               awk ' $3 == "y" {{print $1}}'  |\
               sed -e "s|^|$prefix|g" - |\
               sed -e "s|$|$suffix|g" - |\
-              tr '\n' ',' > {params.bam_dir}/ref/rmats_locs/$t.rmats.txt
+              tr '\\n' ',' > {params.bam_dir}/ref/rmats_locs/$t.rmats.txt
         done
         '''
 
@@ -353,44 +368,40 @@ part? prep for ML step
 
 rule makeExonBeds:
     input: 'rdata/{build}_tx_quant.Rdata'
-    output: expand('data/{{build}}/{type}_{direction}_full_tab.tsv',type=['grow', 'ref'],direction=['end', 'start']),\
-      expand('data/{{build}}/{type}_{direction}_longer.bed',type=['grow', 'ref'], direction=['end', 'start'] )
+    params: qfolder= lambda wildcards: 'quant_files_'+ wildcards.build
+    output: expand('data/{{build}}_exon_tables/{type}_{direction}_full_tab.tsv',type=['grow', 'ref'],direction=['end', 'start']),\
+      expand('data/{{build}}_exon_tables/{type}_{direction}_longer.bed',type=['grow', 'ref'], direction=['end', 'start'] )
     shell:
         '''
         module load {R_version}
-        Rscript scripts/makeExonBed.R {working_dir} {sample_file} {ref_GTF} {win_size} {output}
+        Rscript scripts/makeExonBed.R {working_dir} {sample_file} {ref_GTF} {win_size} {input} {output}
         '''
 
 
 rule mergeBeds:
-    input: expand('data/{{build}}/{type}_{direction}_longer.bed',type=['grow','ref'], direction=['end', 'start'] )
+    input: expand('data/{{build}}_exon_tables/{type}_{direction}_longer.bed',type=['grow','ref'], direction=['end', 'start'] )
     output:'data/bed_files/{build}_alternative_exons.bed'
     shell:
         '''
         module load {bedtools_version}
         bash scripts/merge_beds_distinct.sh {input} {output}
         '''
-rule intersect_coverage:
+rule intersect_and_spread:
     input:'data/bed_files/gencode_alternative_exons.bed', 'coverage_files/{sample}/cov.per-base.bed.gz'
-    output:'coverage_files_gencode/{sample}_exon_cov.bed.gz'
+    output:'data/cleaned_cov/{sample}_bp_features.tsv.gz'
     shell:
         '''
         module load bedtools
-        cut -f1,2,3,4 {input[0]} |
-        bedtools intersect -loj -a {input[1]} -b stdin | awk ' $6 != "-1"' - | gzip -c - > {output}
+        cut -f1,2,3,4 {input[0]} |\
+         bedtools intersect -loj -a {input[1]} -b stdin |\
+         awk ' $6 != "-1"' - |\
+         python3 scripts/makePerBaseFeatureTable.py {working_dir} {output}
         '''
-rule spread_coverage:
-    input:'coverage_files_gencode/{sample}_exon_cov.bed.gz'
-    output: 'data/cleaned/{sample}_bp_features.tsv'
-    shell:
-        '''
-        python3 scripts/makePerBaseFeatureTable.py {working_dir} {input} {output}
-        '''
+
 
 
 '''
 a;ldfn a;kdfv akdfn ;kladfn;kadfn;adf
-
 '''
 
 rule process_rmats_output:
@@ -405,7 +416,7 @@ rule process_rmats_output:
 
 rule combined_rmats_output:
     input: expand('rmats_clean/{sub_tissue}/{{type}}.{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
-    output: 'results/all_tissues.{type}.tsv'
+    output: 'data/rmats/all_tissues.{type}.tsv'
     shell:
         '''
         module load {R_version}

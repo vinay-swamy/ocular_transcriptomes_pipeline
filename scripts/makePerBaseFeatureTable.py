@@ -5,8 +5,8 @@ from itertools import chain
 
 args=sys.argv
 wd=args[1]
-infile=args[2]
-outfile=args[3]
+infile=sys.stdin
+outfile=args[2]
 
 def spread_coverage(exon):
     tdf=cov_df[cov_df['window'] == exon ].reset_index(drop=True)
@@ -22,7 +22,7 @@ def spread_coverage(exon):
     return(comp_line)
 
 os.chdir(wd)
-global cov_df 
+global cov_df
 cov_df=pd.read_csv(infile,sep='\t' , names=['seqid','start', 'end', 'cov','w_seqid','wstart','wend','window']).assign(length= lambda x: x['end']-x['start'])
 
 
@@ -30,4 +30,4 @@ all_windows=list(cov_df['window'].unique())
 res=[spread_coverage(e) for e in all_windows]
 fin=pd.DataFrame(res)
 
-fin.to_csv(outfile,sep='\t',header=False, index=False)
+fin.to_csv(outfile,sep='\t',header=False, index=False,compression='gzip' )

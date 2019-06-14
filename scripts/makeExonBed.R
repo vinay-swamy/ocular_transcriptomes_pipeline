@@ -13,7 +13,7 @@ grow_end_longer <- args[10]
 grow_start_longer <- args[11]
 ref_end_longer <- args[12]
 ref_start_longer <- args[13]
-save(args, file = 'testing/args.rdata')
+#save(args, file = 'testing/args.rdata')
 setwd(wd)
 ref_gtf <- rtracklayer::readGFF(ref_gtf_file)
 sample_table <- read_tsv(sample_file, col_names = c('sample', 'run', 'paired','tissue', 'subtissue', 'origin'))

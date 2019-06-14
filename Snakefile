@@ -89,6 +89,7 @@ samtools_version=config['samtools_version']
 gffcompare_version=config['gffcompare_version']
 mosdepth_version=config['mosdepth_version']
 bedtools_version=config['bedtools_version']
+python_env=config['python_env']
 #commonly used files/paths
 working_dir=config['working_dir']
 STARindex='ref/STARindex'
@@ -99,11 +100,12 @@ fql=config['fastq_path']
 bam_path=config['bam_path']
 stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
+
 rule all:
     input:stringtie_full_gtf,\
     'data/seqs/best_orfs.transdecoder.pep',\
      expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI']),\
-     expand('data/cleaned_cov/{sample}_bp_features.tsv.gz', sample=sample_names)
+     expand('models/{sample}_xgb_trd.pck', sample=sample_names)
 '''
 ****PART 1**** download files and align to genome
 -still need to add missing fastq files
@@ -113,22 +115,24 @@ rule all:
 from ncbi. see https://bioinformatics.stackexchange.com/questions/2548/hg38-gtf-file-with-refseq-annotations
 '''
 rule downloadAnnotation:
-    output:ref_tx_fasta,ref_GTF, ref_genome
+    output: ref_tx_fa=ref_tx_fasta, refgtf=ref_GTF, ref_gen=ref_genome,prot_seq='ref/gencodeProtSeq.fa',\
+     gencode_gff='ref/gencodeGFF3.gff', ensbl_gtf='ref/ensembl_ano.gtf', refseq='ref/refseq_ncbi.gff3', ucsc='ref/ucsc.gtf'
     shell:
         '''
-        wget -O - {config[ref_tx_fasta_url]} | gunzip -c - > 'ref/gencode_tx_ref.fa'
-        wget -O - {config[refGTF_url]} | gunzip -c - > 'ref/gencode_comp_ano.gtf'
+        wget -O - {config[ref_tx_fasta_url]} | gunzip -c - > {input.ref_tx_fasta}
+        wget -O - {config[refGTF_url]} | gunzip -c - > {input.refgtf}
         wget -O - {config[ref_genome_url]} | gunzip -c - > /tmp/gencodePA_tmp.fa
         wget -O - {config[refProtSeq_url]} | gunzip -c - > /tmp/gencodeProtSeq.fa
-        wget -O - {config[refGFF3_url]} | gunzip -c > ref/gencodeGFF3.gff
-        wget -O - {config[ensembl_gtf_url]} | gunzip -c - > ref/ensembl_ano.gtf
-        wget -O - {config[refseq_ncbi_url]} | gunzip -c - > ref/refseq_ncbi.gff3
+        wget -O - {config[refGFF3_url]} | gunzip -c > {input.gencode_gff}
+        wget -O - {config[ensembl_gtf_url]} | gunzip -c - > {input.ensbl_gtf}
+        wget -O - {config[refseq_ncbi_url]} | gunzip -c - > {input.refseq}
         module load mysql
         module load ucsc
-        mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -N -e "select * from refGene" hg38 | cut -f2- | genePredToGtf -source=hg38.refGene.ucsc file stdin refs.gtf
+        mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -N -e "select * from refGene" hg38 |\
+         cut -f2- | genePredToGtf -source=hg38.refGene.ucsc file stdin {input.ucsc}
         module load python/3.6
-        python3 scripts/filterFasta.py /tmp/gencodePA_tmp.fa ref/chroms_to_remove ref/gencode_genome.fa
-        python3 scripts/clean_fasta.py /tmp/gencodeProtSeq.fa ref/gencodeProtSeq.fa
+        python3 scripts/filterFasta.py /tmp/gencodePA_tmp.fa ref/chroms_to_remove {input.ref_gen}
+        python3 scripts/clean_fasta.py /tmp/gencodeProtSeq.fa {input.prot_seq}
         module load {samtools_version}
         samtools faidx ref/gencode_genome.fa
         '''
@@ -350,7 +354,7 @@ rule preprMats_running:
         '''
 
 rule runrMATS:
-    input: 'ref/rmats_locs/{tissue}.rmats.txt','ref/STARindex',ref_GTF
+    input: 'ref/rmats_locs/{tissue}.rmats.txt','ref/STARindex',stringtie_full_gtf
     output:expand('rmats_out/{{tissue}}/{event}.MATS.JC.txt', event=rmats_events)
     # might have to change read length to some sort of function
     shell:
@@ -397,11 +401,17 @@ rule intersect_and_spread:
          awk ' $6 != "-1"' - |\
          python3 scripts/makePerBaseFeatureTable.py {working_dir} {output}
         '''
-
-
+rule train_base_model:
+    input: 'data/cleaned_cov/{sample}_bp_features.tsv.gz'
+    output: 'models/{sample}_xgb_trd.pck'
+    shell:
+        '''
+        python3 scripts/train_model.py {working_dir} {input} {output}
+        '''
 
 '''
-a;ldfn a;kdfv akdfn ;kladfn;kadfn;adf
+Aggregate rMATs results
+
 '''
 
 rule process_rmats_output:

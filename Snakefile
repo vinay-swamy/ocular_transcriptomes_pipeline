@@ -144,7 +144,7 @@ rule downloadAnnotation:
         '''
 
 # This is manily for rerunning on biowulf,
-rule  build_gffread:
+rule build_gffread:
     output:'gffread/gffread'
     shell:
         '''
@@ -238,8 +238,19 @@ rule merge_gtfs_by_tissue:
         stringtie --merge -G {ref_GTF} -l {wildcards.tissue}_MSTRG  -T $num -o {output[0]} {input}
         '''
 
+rule make_tx_fasta:
+    input: tool='gffread/gffread', gtf='data/gtfs/tissue_gtfs/{tissue}_st.gtf'
+    output: 'data/seqs/{tissue}_tx.fa'
+    shell:
+        '''
+        cat {input.gtf} | tr '*' '+' > /tmp/all_tissue.combined.gtf
+        ./gffread/gffread -w {output} -g {ref_genome}  /tmp/all_tissue.combined.gtf
+        '''
+
+
+
 rule build_salmon_index:
-    input: 'data/gtfs/tissue_gtfs/{tissue}_st.gtf'
+    input: 'data/seqs/{tissue}_tx.fa'
     output: directory('data/salmon_indices/{tissue}')
     shell:
         '''
@@ -251,7 +262,7 @@ rule run_salmon:
     input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
         index='data/salmon_indices/{tissue}'
     params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),\
-     outdir=lambda wildcards: 'data/quant_files/{}/{}/quant.sf'.format(wildcards.tissue, wildcards.sampleID)
+     outdir=lambda wildcards: 'data/quant_files/{}/{}'.format(wildcards.tissue, wildcards.sampleID)
     output: 'data/quant_files/{tissue}/{sampleID}/quant.sf'
     shell:
         '''
@@ -331,14 +342,7 @@ Salmon quantification -  runs once to get counts to use for training data for ml
 
 '''
 #
-# rule make_tx_fasta:
-#     input:'gffread/gffread', stringtie_full_gtf
-#     output: 'data/seqs/combined_stringtie_tx.fa'
-#     shell:
-#         '''
-#         cat {stringtie_full_gtf} | tr '*' '+' > /tmp/all_tissue.combined.gtf
-#         ./gffread/gffread -w {output[0]} -g {ref_genome}  /tmp/all_tissue.combined.gtf
-#         '''
+
 #
 # rule run_trans_decoder:
 #     input:'data/seqs/combined_stringtie_tx.fa'

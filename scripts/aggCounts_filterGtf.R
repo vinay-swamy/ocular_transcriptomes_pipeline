@@ -16,7 +16,7 @@ sample_names <- strsplit(q_files, '/')%>% sapply(function(x)x[[4]])# ***haven't 
 txi <- tximport(q_files, 'salmon', txOut = T, countsFromAbundance = 'lengthScaledTPM')
 colnames(txi$counts) <- sample_names
 tx_counts <- txi$counts %>% as.data.frame() %>% mutate(transcript_id=rownames(.)) %>% select(transcript_id, everything())
-tx_counts_exp <- tx_counts %>% filter(rowSums(.[,-1]) >= (nrow(.)-1) )
-gtf_exp <- filter(gtf, transcript_id %in%  tx_counts_exp, transcript_id)
-write_tsv(tx_counts_exp)
+tx_counts_exp <- tx_counts %>% filter(rowSums(.[,-1]) >= (ncol(.)-1) )
+gtf_exp <- filter(gtf, transcript_id %in%  tx_counts_exp$transcript_id)
+write_tsv(tx_counts_exp, tx_outfile)
 write_gtf3(gtf_exp, filt_gtf_outfile)

@@ -20,3 +20,17 @@ tx_counts_exp <- tx_counts %>% filter(rowSums(.[,-1]) >= (ncol(.)-1) )
 gtf_exp <- filter(gtf, transcript_id %in%  tx_counts_exp$transcript_id)
 write_tsv(tx_counts_exp, tx_outfile)
 write_gtf3(gtf_exp, filt_gtf_outfile)
+
+
+
+
+
+
+
+
+
+
+
+
+
+

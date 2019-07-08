@@ -107,10 +107,11 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input:expand('rmats_out/{tissue}/{event}.MATS.JC.txt',tissue=subtissues, event=rmats_events)
+    input:expand('rmats_out/{tissue}/{event}.MATS.JC.txt',tissue=subtissues, event=rmats_events), stringtie_full_gtf,\
+    expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI'])
     #stringtie_full_gtf,\
     #'data/seqs/best_orfs.transdecoder.pep',\
-    # expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI']),\
+
      #expand('models/{sample}_xgb_trd.pck', sample=sample_names)
 '''
 ****PART 1**** download files and align to genome
@@ -235,7 +236,8 @@ rule merge_gtfs_by_tissue:
         pattern={wildcards.tissue}
         num=$(awk -v pattern="$pattern" '$4==pattern' {sample_file} | wc -l)
 	    module load {stringtie_version}
-        stringtie --merge -G {ref_GTF} -l {wildcards.tissue}_MSTRG  -T $num -o {output[0]} {input}
+        stringtie --merge -G {ref_GTF} -l {wildcards.tissue}_MSTRG  -T $num {input} |\
+         tr '*' '+' > {output}
         '''
 
 rule make_tx_fasta:
@@ -243,8 +245,7 @@ rule make_tx_fasta:
     output: 'data/seqs/{tissue}_tx.fa'
     shell:
         '''
-        cat {input.gtf} | tr '*' '+' > /tmp/all_tissue.combined.gtf
-        ./gffread/gffread -w {output} -g {ref_genome}  /tmp/all_tissue.combined.gtf
+        ./gffread/gffread -w {output} -g {ref_genome}  {input.gtf}
         '''
 
 
@@ -275,7 +276,7 @@ rule aggregate_salmon_counts_and_filter_gtf:
     input: qfiles= lambda wildcards: tissue_to_sample(wildcards.tissue, sample_dict),\
      gtf='data/gtfs/tissue_gtfs/{tissue}_st.gtf'
     params: qfolder= lambda wildcards: 'data/quant_files/'+ wildcards.tissue
-    output: 'data/exp_files/{tissue}_tx_quant.tsv.gz', 'data/gtf/filtered_tissue/{tissue}.gtf'
+    output: 'data/exp_files/{tissue}_tx_quant.tsv.gz', 'data/gtfs/filtered_tissue/{tissue}.gtf'
     shell:
         '''
         module load {R_version}
@@ -303,7 +304,7 @@ rule preprMats_running:
         '''
 
 rule runrMATS:
-    input: loc='ref/rmats_locs/{tissue}.rmats.txt',idx='ref/STARindex', gtf='data/gtf/filtered_tissue/{tissue}.gtf'
+    input: loc='ref/rmats_locs/{tissue}.rmats.txt',idx='ref/STARindex', gtf='data/gtfs/filtered_tissue/{tissue}.gtf'
     output:expand('rmats_out/{{tissue}}/{event}.MATS.JC.txt', event=rmats_events)
     # might have to change read length to some sort of function
     shell:
@@ -319,29 +320,19 @@ rule runrMATS:
 
 #gffread v0.9.12.Linux_x86_64/
 
-
-'''
-Salmon quantification -  runs once to get counts to use for training data for ml step , and ocne again to quantify newly built
-    transcripts.
-
-
-'''
-
-
-
-
-
-
-
-
-
-
-
-'''
--have to remove ambigous strands fromt the gtf, but I dont wanna make it permanent
-
-'''
-#
+rule merge_tissue_gtfs:
+    input: expand('data/gtfs/filtered_tissue/{tissue}.gtf',tissue=tissues)
+    output: stringtie_full_gtf, 'data/gtfs/all_tissues.stringtie_merge.gtf'
+    shell:
+        '''
+        module load {stringtie_version}
+        stringtie --merge -G {ref_GTF}  -o {output[1]} {input}
+        mkdir -p ref/gffread_dir
+        module load {gffcompare_version}
+        gffcompare -r {ref_GTF} -o ref/gffread_dir/all_tissues {input}
+        module load {R_version}
+        Rscript scripts/fix_gene_id.R {working_dir} ref/gffread_dir/all_tissues.combined.gtf {output[0]}
+        '''
 
 #
 # rule run_trans_decoder:
@@ -413,38 +404,26 @@ Aggregate rMATs results
 
 
 # the Rscript is because multiple transcripts mapping to different genes some times get called under the same gene_name
-# rule merge_tissue_gtfs:
-#     input: expand('data/gtfs/tissue_gtfs/{tissue}_st.gtf',tissue=tissues)
-#     output: stringtie_full_gtf, 'data/gtfs/all_tissues.stringtie_merge.gtf'
-#     shell:
-#         '''
-#         module load {stringtie_version}
-#         stringtie --merge -G {ref_GTF}  -o {output[1]} {input}
-#         mkdir -p ref/gffread_dir
-#         module load {gffcompare_version}
-#         gffcompare -r {ref_GTF} -o ref/gffread_dir/all_tissues {input}
-#         module load {R_version}
-#         Rscript scripts/fix_gene_id.R {working_dir} ref/gffread_dir/all_tissues.combined.gtf {output[0]}
-#         '''
+
 #
 #
 #
 #
-# rule process_rmats_output:
-#     input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
-#     params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-#     output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['incCts','PSI'])
-#     shell:
-#         '''
-#         module load {R_version}
-#         Rscript scripts/process_rmats_output.R {working_dir} {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
-#         '''
-#
-# rule combined_rmats_output:
-#     input: expand('rmats_clean/{sub_tissue}/{{type}}.{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
-#     output: 'data/rmats/all_tissues.{type}.tsv'
-#     shell:
-#         '''
-#         module load {R_version}
-#         Rscript scripts/combine_rmats_output.R {working_dir} {wildcards.type} {output}
-#         '''
+rule process_rmats_output:
+    input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
+    params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
+    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['incCts','PSI'])
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/process_rmats_output.R {working_dir} {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
+        '''
+
+rule combined_rmats_output:
+    input: expand('rmats_clean/{sub_tissue}/{{type}}.{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
+    output: 'data/rmats/all_tissues.{type}.tsv'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/combine_rmats_output.R {working_dir} {wildcards.type} {output}
+        '''

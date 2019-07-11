@@ -70,6 +70,14 @@ def salmon_input(id,sample_dict,fql):
 def build_to_fasta_file(build):
     if build == 'gencode':
         return('ref/gencode_tx_ref.fa')# hard coded for now, will need to add more later
+def build_tissue_lookup(tissue):
+    if tissue == 'all_tissues':
+        return 'data/gtfs/all_tissues.combined.gtf'
+    else:
+        return 'data/gtfs/tissue_gtfs/{}_st.gtf'.format(tissue)
+
+
+
 
 
 #sample information
@@ -108,7 +116,8 @@ win_size=config['window_size']
 
 rule all:
     input:expand('rmats_out/{tissue}/{event}.MATS.JC.txt',tissue=subtissues, event=rmats_events), stringtie_full_gtf,\
-    expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI'])
+    expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI']),\
+    expand('data/quant_files_all/{sampleID}/quant.sf', sampleID=sample_names)
     #stringtie_full_gtf,\
     #'data/seqs/best_orfs.transdecoder.pep',\
 
@@ -241,7 +250,7 @@ rule merge_gtfs_by_tissue:
         '''
 
 rule make_tx_fasta:
-    input: tool='gffread/gffread', gtf='data/gtfs/tissue_gtfs/{tissue}_st.gtf'
+    input: tool='gffread/gffread',gtf= lambda wildcards: build_tissue_lookup(wildcards.tissue)
     output: 'data/seqs/{tissue}_tx.fa'
     shell:
         '''
@@ -269,7 +278,7 @@ rule run_salmon:
         '''
         id={wildcards.sampleID}
         module load {salmon_version}
-        salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o {params.outdir}
+        salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias --numBootstraps 100  {params.cmd} -o {params.outdir}
         '''
 
 rule aggregate_salmon_counts_and_filter_gtf:
@@ -327,12 +336,30 @@ rule merge_tissue_gtfs:
         '''
         module load {stringtie_version}
         stringtie --merge -G {ref_GTF}  -o {output[1]} {input}
-        mkdir -p ref/gffread_dir
+        mkdir -p data/gffread_dir
         module load {gffcompare_version}
-        gffcompare -r {ref_GTF} -o ref/gffread_dir/all_tissues {input}
+        gffcompare -r {ref_GTF} -o data/gffread_dir/all_tissues {input}
         module load {R_version}
-        Rscript scripts/fix_gene_id.R {working_dir} ref/gffread_dir/all_tissues.combined.gtf {output[0]}
+        Rscript scripts/fix_gene_id.R {working_dir} data/gffread_dir/all_tissues.combined.gtf {ref_GTF} {output[0]}
         '''
+
+
+rule run_salmon_all:
+    input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
+        index='data/salmon_indices/all_tissues'
+    params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),\
+     outdir=lambda wildcards: 'data/quant_files_all/{}'.format(wildcards.sampleID)
+    output: 'data/quant_files_all/{sampleID}/quant.sf'
+    shell:
+        '''
+        id={wildcards.sampleID}
+        module load {salmon_version}
+        salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o {params.outdir}
+        '''
+
+
+
+
 
 #
 # rule run_trans_decoder:

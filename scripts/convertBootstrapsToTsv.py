@@ -8,6 +8,7 @@ import logging.handlers
 import sys
 import errno
 import json
+import pandas as pd
 
 # from: http://stackoverflow.com/questions/600268/mkdir-p-functionality-in-python
 def mkdir_p(path):
@@ -33,22 +34,22 @@ def main(args):
     bootstrapFile = os.path.sep.join([quantDir, auxDir, "bootstrap", "bootstraps.gz"])
     nameFile = os.path.sep.join([quantDir, auxDir, "bootstrap", "names.tsv.gz"])
     if not os.path.isfile(bootstrapFile):
-       logging.error("The required bootstrap file {} doesn't appear to exist".format(bootstrapFile)) 
+       logging.error("The required bootstrap file {} doesn't appear to exist".format(bootstrapFile))
        sys.exit(1)
     if not os.path.isfile(nameFile):
-       logging.error("The required transcript name file {} doesn't appear to exist".format(nameFile)) 
+       logging.error("The required transcript name file {} doesn't appear to exist".format(nameFile))
        sys.exit(1)
-    
+
     txpNames = None
     with gzip.open(nameFile) as nf:
         txpNames = nf.read().decode().strip().split('\t')
-    
+
     ntxp = len(txpNames)
     logging.info("Expecting bootstrap info for {} transcripts".format(ntxp))
-    
+
     with open(os.path.sep.join([quantDir, auxDir, "meta_info.json"])) as fh:
         meta_info = json.load(fh)
-        
+
     if meta_info['samp_type'] == 'gibbs':
         #s = struct.Struct('<' + 'i' * ntxp)
         s = struct.Struct('@' + 'd' * ntxp)
@@ -57,7 +58,7 @@ def main(args):
     else:
         logging.error("Unknown sampling method: {}".format(meta_info['samp_type']))
         sys.exit(1)
-        
+
     numBoot = 0
     outDir = args.outDir
     if os.path.exists(outDir):
@@ -68,29 +69,32 @@ def main(args):
             logging.warn("The requested output directory {} already exists --- any existing bootstraps may be overwritten".format(outDir))
     else:
         mkdir_p(outDir)
-    
-    outFile = os.path.sep.join([outDir, 'quant_bootstraps.tsv'])
-    with open(outFile,'w') as ofile:
+
+    outFile = os.path.sep.join([outDir, 'quant_bootstraps.tsv.gz'])
+    tmpfile='/tmp/garbage.smoob'
+    with open(tmpfile,'w') as ofile:
         # write the header
-        ofile.write('\t'.join(txpNames) + '\n')
-        
+        out_list=[]
+        out_list.append(txpNames)
         # Now, iterate over the bootstrap samples and write each
         with gzip.open(bootstrapFile) as bf:
             while True:
                 try:
                     x = s.unpack_from(bf.read(s.size))
-                    xs = map(str, x)
-                    ofile.write('\t'.join(xs) + '\n')
+                    xs =[str(i) for i in x]
+                    out_list.append(xs)
                     numBoot += 1
                 except:
                     logging.info("read all bootstrap values")
                     break
-
+        full_tab=pd.DataFrame(out_list)
+        print(full_tab.shape)
+        full_tab.transpose().to_csv(outFile, sep='\t', header=False, index=False, compression='gzip')
     logging.info("wrote {} bootstrap samples".format(numBoot))
     logging.info("converted bootstraps successfully.")
 
 if __name__ == "__main__":
-   parser = argparse.ArgumentParser(description="Convert bootstrap results to text format") 
+   parser = argparse.ArgumentParser(description="Convert bootstrap results to text format")
    parser.add_argument('quantDir', type=str, help="path to (sailfish / salmon) quantification directory")
    parser.add_argument('outDir', type=str, help="path to directory where results should be written")
    args = parser.parse_args()

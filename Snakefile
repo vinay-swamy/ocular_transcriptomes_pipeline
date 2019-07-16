@@ -273,12 +273,13 @@ rule run_salmon:
         index='data/salmon_indices/{tissue}'
     params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),\
      outdir=lambda wildcards: 'data/quant_files/{}/{}'.format(wildcards.tissue, wildcards.sampleID)
-    output: 'data/quant_files/{tissue}/{sampleID}/quant.sf'
+    output: 'data/quant_files/{tissue}/{sampleID}/quant.sf','data/quant_files/{tissue}/{sampleID}/quant_bootstraps.tsv.gz'
     shell:
         '''
         id={wildcards.sampleID}
         module load {salmon_version}
-        salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias --numBootstraps 100  {params.cmd} -o {params.outdir}
+        salmon quant -p 8 -i {input.index} -l A --gcBias --seqBias --numBootstraps 100  {params.cmd} -o {params.outdir}
+        python3 scripts/convertBootstrapsToTsv.py {params.outdir} {params.outdir}
         '''
 
 rule aggregate_salmon_counts_and_filter_gtf:
@@ -349,12 +350,13 @@ rule run_salmon_all:
         index='data/salmon_indices/all_tissues'
     params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),\
      outdir=lambda wildcards: 'data/quant_files_all/{}'.format(wildcards.sampleID)
-    output: 'data/quant_files_all/{sampleID}/quant.sf'
+    output: 'data/quant_files_all/{sampleID}/quant.sf', 'data/quant_files_all/{sampleID}/quant_bootstraps.tsv.gz'
     shell:
         '''
         id={wildcards.sampleID}
         module load {salmon_version}
-        salmon quant -p 4 -i {input.index} -l A --gcBias --seqBias  {params.cmd} -o {params.outdir}
+        salmon quant -p 8 -i {input.index} -l A --gcBias --seqBias --numBootstraps 100  {params.cmd} -o {params.outdir}
+        python3 scripts/convertBootstrapsToTsv.py {params.outdir} {params.outdir}
         '''
 
 

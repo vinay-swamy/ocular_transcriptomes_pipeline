@@ -70,14 +70,26 @@
 	"run_salmon":
 	{
                 "partition" : "norm",
-                "cpus-per-task" : "4",
-                "time" : "4:00:00",
+                "cpus-per-task" : "8",
+                "time" : "6:00:00",
                 "mem" : "32g",
                 "output"  : "00log/{rule}_{wildcards}.out",
                 "error" : "00log/{rule}_{wildcards}.err",
                 "extra" : ""
 
 	},
+        "run_salmon_all":
+        {
+                "partition" : "norm",
+                "cpus-per-task" : "8",
+                "time" : "6:00:00",
+                "mem" : "32g",
+                "output"  : "00log/{rule}_{wildcards}.out",
+                "error" : "00log/{rule}_{wildcards}.err",
+                "extra" : ""
+
+        },
+
 	"calculate_cov":
 	{
 				"partition" : "quick",

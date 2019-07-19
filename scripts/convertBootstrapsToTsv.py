@@ -1,4 +1,11 @@
+'''
+This a variant of a script given by the COMBINE lab to convert the binary bootstrap file to a TSV.
+-initially the data was given in long format(tx as columns), So I'm, using pandas to make it a little cleaner
+-was writing all bootstrap values, but I'm considering just writing the variance, really depends on whether or not
+ I want to  use sleuth
 
+
+'''
 import gzip
 import struct
 import argparse
@@ -71,6 +78,7 @@ def main(args):
         mkdir_p(outDir)
 
     outFile = os.path.sep.join([outDir, 'quant_bootstraps.tsv.gz'])
+#changes start here
     tmpfile='/tmp/garbage.smoob'
     with open(tmpfile,'w') as ofile:
         # write the header

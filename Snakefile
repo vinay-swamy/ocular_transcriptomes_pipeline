@@ -53,11 +53,18 @@ def tissue_to_gtf(tissue, sample_dict):
         if sample_dict[sample]['tissue']==tissue :
             res.append('st_out/{}.gtf'.format(sample))
     return (res)
-def tissue_to_sample(subtissue, sample_dict):
+def tissue_to_sample_agg(subtissue, sample_dict):
     res=[]
     for sample in sample_dict.keys():
         if sample_dict[sample]['subtissue'] == subtissue:
-            res.append('data/quant_files/{}/{}/quant.sf'.format(subtissue, sample))
+            res.append('data/rawST_tx_quant_files/{}/{}/quant.sf'.format(subtissue, sample))
+    return(res)
+
+def tissue_to_sample_all( sample_dict):
+    res=[]
+    for sample in sample_dict.keys():
+        subtissue=sample_dict[sample]['subtissue']
+        res.append('data/filter_tx_quant_files/{}/{}/quant.sf'.format(subtissue, sample))
     return(res)
 
 def salmon_input(id,sample_dict,fql):
@@ -70,13 +77,14 @@ def salmon_input(id,sample_dict,fql):
 def build_to_fasta_file(build):
     if build == 'gencode':
         return('ref/gencode_tx_ref.fa')# hard coded for now, will need to add more later
-def build_tissue_lookup(tissue):
+def build_tissue_lookup(tissue, build=''):
     if tissue == 'all_tissues':
         return 'data/gtfs/all_tissues.combined.gtf'
     else:
-        return 'data/gtfs/tissue_gtfs/{}_st.gtf'.format(tissue)
-
-
+        if build == 'rawST_tx_quant_files':
+            return 'data/gtfs/raw_tissue_gtfs/{}_st.gtf'.format(tissue)
+        else :
+            return 'data/gtfs/filtered_tissue/{}.gtf'.format(tissue)
 
 
 
@@ -117,9 +125,9 @@ win_size=config['window_size']
 rule all:
     input:expand('rmats_out/{tissue}/{event}.MATS.JC.txt',tissue=subtissues, event=rmats_events), stringtie_full_gtf,\
     expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI']),\
-    expand('data/quant_files_all/{sampleID}/quant.sf', sampleID=sample_names)
+    'data/exp_files/all_tissues_complete_quant.tsv.gz',\
     #stringtie_full_gtf,\
-    #'data/seqs/best_orfs.transdecoder.pep',\
+    'data/seqs/best_orfs.transdecoder.pep'
 
      #expand('models/{sample}_xgb_trd.pck', sample=sample_names)
 '''
@@ -239,7 +247,7 @@ rule run_stringtie:
 #gffread v0.9.12.Linux_x86_64/
 rule merge_gtfs_by_tissue:
     input: lambda wildcards: tissue_to_gtf(wildcards.tissue, sample_dict)
-    output: 'data/gtfs/tissue_gtfs/{tissue}_st.gtf'
+    output: 'data/gtfs/raw_tissue_gtfs/{tissue}_st.gtf'
     shell:
         '''
         pattern={wildcards.tissue}
@@ -248,32 +256,36 @@ rule merge_gtfs_by_tissue:
         stringtie --merge -G {ref_GTF} -l {wildcards.tissue}_MSTRG  -T $num {input} |\
          tr '*' '+' > {output}
         '''
+'''
+This chunk runs twice, where we first quantify the raw transcriptome, then filter, rebuild and requantify
 
+'''
+#************************************************************************************************************************
 rule make_tx_fasta:
-    input: tool='gffread/gffread',gtf= lambda wildcards: build_tissue_lookup(wildcards.tissue)
-    output: 'data/seqs/{tissue}_tx.fa'
+    input: tool='gffread/gffread',gtf= lambda wildcards: build_tissue_lookup(wildcards.tissue, wildcards.build)
+    output: 'data/seqs/{build}/{tissue}_tx.fa'
     shell:
         '''
         ./gffread/gffread -w {output} -g {ref_genome}  {input.gtf}
         '''
 
 
-
 rule build_salmon_index:
-    input: 'data/seqs/{tissue}_tx.fa'
-    output: directory('data/salmon_indices/{tissue}')
+    input: 'data/seqs/{build}/{tissue}_tx.fa'
+    output: directory('data/salmon_indices/{build}/{tissue}')
     shell:
         '''
         module load {salmon_version}
         salmon index -t {input} -i {output} --type quasi --perfectHash -k 31
         '''
 
+
 rule run_salmon:
     input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
-        index='data/salmon_indices/{tissue}'
+        index='data/salmon_indices/{build}/{tissue}'
     params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),\
-     outdir=lambda wildcards: 'data/quant_files/{}/{}'.format(wildcards.tissue, wildcards.sampleID)
-    output: 'data/quant_files/{tissue}/{sampleID}/quant.sf','data/quant_files/{tissue}/{sampleID}/quant_bootstraps.tsv.gz'
+     outdir=lambda wildcards: 'data/{}/{}/{}'.format(wildcards.build, wildcards.tissue, wildcards.sampleID)
+    output: 'data/{build}/{tissue}/{sampleID}/quant.sf','data/{build}/{tissue}/{sampleID}/quant_bootstraps.tsv.gz'
     shell:
         '''
         id={wildcards.sampleID}
@@ -281,10 +293,10 @@ rule run_salmon:
         salmon quant -p 8 -i {input.index} -l A --gcBias --seqBias --numBootstraps 100  {params.cmd} -o {params.outdir}
         python3 scripts/convertBootstrapsToTsv.py {params.outdir} {params.outdir}
         '''
-
+#***************************************************************************************************************************************
 rule aggregate_salmon_counts_and_filter_gtf:
-    input: qfiles= lambda wildcards: tissue_to_sample(wildcards.tissue, sample_dict),\
-     gtf='data/gtfs/tissue_gtfs/{tissue}_st.gtf'
+    input: qfiles= lambda wildcards: tissue_to_sample_agg(wildcards.tissue, sample_dict),\
+     gtf='data/gtfs/raw_tissue_gtfs/{tissue}_st.gtf'
     params: qfolder= lambda wildcards: 'data/quant_files/'+ wildcards.tissue
     output: 'data/exp_files/{tissue}_tx_quant.tsv.gz', 'data/gtfs/filtered_tissue/{tissue}.gtf'
     shell:
@@ -293,6 +305,11 @@ rule aggregate_salmon_counts_and_filter_gtf:
         Rscript scripts/aggCounts_filterGtf.R {working_dir} {input.gtf} {params.qfolder} {output}
         '''
 
+
+'''
+rMATs part.
+'''
+#***************************************************************************************************************************************
 rule preprMats_running:
     input: expand(bam_path + 'STARbams/{id}/Sorted.out.bam',id=sample_names),
     params: bam_dir=bam_path
@@ -325,6 +342,25 @@ rule runrMATS:
         --nthread 8  --readLength 130 --gtf {input.gtf} --bi {input.idx} --od rmats_out/$tissue
         '''
 
+rule process_rmats_output:
+    input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
+    params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
+    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['incCts','PSI'])
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/process_rmats_output.R {working_dir} {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
+        '''
+
+rule combined_rmats_output:
+    input: expand('rmats_clean/{sub_tissue}/{{type}}.{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
+    output: 'data/rmats/all_tissues.{type}.tsv'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/combine_rmats_output.R {working_dir} {wildcards.type} {output}
+        '''
+#***************************************************************************************************************************************
 
 
 
@@ -332,65 +368,52 @@ rule runrMATS:
 
 rule merge_tissue_gtfs:
     input: expand('data/gtfs/filtered_tissue/{tissue}.gtf',tissue=tissues)
-    output: stringtie_full_gtf, 'data/gtfs/all_tissues.stringtie_merge.gtf'
+    output: stringtie_full_gtf, 'data/gtfs/all_tissues.stringtie_merge.gtf', 'data/gffcomp_dir/all_tissues.tracking'
     shell:
         '''
         module load {stringtie_version}
         stringtie --merge -G {ref_GTF}  -o {output[1]} {input}
-        mkdir -p data/gffread_dir
+        mkdir -p data/gffcomp_dir
         module load {gffcompare_version}
-        gffcompare -r {ref_GTF} -o data/gffread_dir/all_tissues {input}
+        gffcompare -r {ref_GTF} -o data/gffcomp_dir/all_tissues {input}
         module load {R_version}
-        Rscript scripts/fix_gene_id.R {working_dir} data/gffread_dir/all_tissues.combined.gtf {ref_GTF} {output[0]}
+        Rscript scripts/fix_gene_id.R {working_dir} data/gffcomp_dir/all_tissues.combined.gtf {ref_GTF} {output[0]}
         '''
 
 
-rule run_salmon_all:
-    input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
-        index='data/salmon_indices/all_tissues'
-    params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),\
-     outdir=lambda wildcards: 'data/quant_files_all/{}'.format(wildcards.sampleID)
-    output: 'data/quant_files_all/{sampleID}/quant.sf', 'data/quant_files_all/{sampleID}/quant_bootstraps.tsv.gz'
+rule merge_filtered_salmon_quant:
+    input: tissue_to_sample_all(sample_dict), 'data/gffcomp_dir/all_tissues.tracking'
+    params: qdir='data/filter_tx_quant_files/'
+    output: 'data/exp_files/all_tissues_complete_quant.tsv.gz', 'data/misc/gfc_TCONS_to_st_MSTRG.tsv'
     shell:
         '''
-        id={wildcards.sampleID}
-        module load {salmon_version}
-        salmon quant -p 8 -i {input.index} -l A --gcBias --seqBias --numBootstraps 100  {params.cmd} -o {params.outdir}
-        python3 scripts/convertBootstrapsToTsv.py {params.outdir} {params.outdir}
+        module load {R_version}
+        Rscript scripts/TCONS_to_tissueMSTRG.R {working_dir} {params.qdir} {sample_file} {output}
         '''
 
-
-
-
-
+rule run_trans_decoder:
+    input:'data/seqs/combined_stringtie_tx.fa'
+    output:'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3', \
+    'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
+    shell:
+        '''
+        mkdir -p transdecoder
+        cd transdecoder
+        module load {TransDecoder_version}
+        TransDecoder.LongOrfs -t ../{input}
+        TransDecoder.Predict --single_best_only -t ../{input}
+        mkdir -p ../data/seqs/transdecoder_results/
+        mv combined_stringtie_tx.fa.transdecoder.*  ../data/seqs/transdecoder_results/
+        '''
 #
-# rule run_trans_decoder:
-#     input:'data/seqs/combined_stringtie_tx.fa'
-#     output:'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3', \
-#     'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
-#     shell:
-#         '''
-#         mkdir -p transdecoder
-#         cd transdecoder
-#         module load {TransDecoder_version}
-#         TransDecoder.LongOrfs -t ../{input}
-#         TransDecoder.Predict --single_best_only -t ../{input}
-#         mkdir -p ../data/seqs/transdecoder_results/
-#         mv combined_stringtie_tx.fa.transdecoder.*  ../data/seqs/transdecoder_results/
-#         '''
-#
-# rule clean_pep:
-#     input:'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
-#     output:pep='data/seqs/best_orfs.transdecoder.pep', meta_info='data/seqs/pep_fasta_meta_info.tsv', len_cor_tab='data/seqs/len_cor_tab.tsv'
-#     shell:
-#         '''
-#         python3 scripts/clean_pep.py {input} /tmp/tmpvs.fasta {output.meta_info}
-#         python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
-#         '''
-
-'''
-PART 5 rMATS
-'''
+rule clean_pep:
+    input:'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
+    output:pep='data/seqs/best_orfs.transdecoder.pep', meta_info='data/seqs/pep_fasta_meta_info.tsv', len_cor_tab='data/seqs/len_cor_tab.tsv'
+    shell:
+        '''
+        python3 scripts/clean_pep.py {input} /tmp/tmpvs.fasta {output.meta_info}
+        python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
+        '''
 
 
 #
@@ -425,34 +448,3 @@ PART 5 rMATS
 #         '''
 #         python3 scripts/train_model.py {working_dir} {input} {output}
 #         '''
-
-'''
-Aggregate rMATs results
-
-'''
-
-
-# the Rscript is because multiple transcripts mapping to different genes some times get called under the same gene_name
-
-#
-#
-#
-#
-rule process_rmats_output:
-    input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
-    params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['incCts','PSI'])
-    shell:
-        '''
-        module load {R_version}
-        Rscript scripts/process_rmats_output.R {working_dir} {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
-        '''
-
-rule combined_rmats_output:
-    input: expand('rmats_clean/{sub_tissue}/{{type}}.{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
-    output: 'data/rmats/all_tissues.{type}.tsv'
-    shell:
-        '''
-        module load {R_version}
-        Rscript scripts/combine_rmats_output.R {working_dir} {wildcards.type} {output}
-        '''

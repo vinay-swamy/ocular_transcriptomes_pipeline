@@ -125,7 +125,7 @@ win_size=config['window_size']
 rule all:
     input:expand('rmats_out/{tissue}/{event}.MATS.JC.txt',tissue=subtissues, event=rmats_events), stringtie_full_gtf,\
     expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI']),\
-    'data/exp_files/all_tissues_complete_quant.tsv.gz',\
+    'data/exp_files/all_tissues_complete_quant.rdata',\
     #stringtie_full_gtf,\
     'data/seqs/best_orfs.transdecoder.pep'
 
@@ -297,7 +297,7 @@ rule run_salmon:
 rule aggregate_salmon_counts_and_filter_gtf:
     input: qfiles= lambda wildcards: tissue_to_sample_agg(wildcards.tissue, sample_dict),\
      gtf='data/gtfs/raw_tissue_gtfs/{tissue}_st.gtf'
-    params: qfolder= lambda wildcards: 'data/quant_files/'+ wildcards.tissue
+    params: qfolder= lambda wildcards: 'data/rawST_tx_quant_files/'+ wildcards.tissue
     output: 'data/exp_files/{tissue}_tx_quant.tsv.gz', 'data/gtfs/filtered_tissue/{tissue}.gtf'
     shell:
         '''
@@ -306,10 +306,11 @@ rule aggregate_salmon_counts_and_filter_gtf:
         '''
 
 
+
+#***************************************************************************************************************************************
 '''
 rMATs part.
 '''
-#***************************************************************************************************************************************
 rule preprMats_running:
     input: expand(bam_path + 'STARbams/{id}/Sorted.out.bam',id=sample_names),
     params: bam_dir=bam_path
@@ -382,13 +383,13 @@ rule merge_tissue_gtfs:
 
 
 rule merge_filtered_salmon_quant:
-    input: tissue_to_sample_all(sample_dict), 'data/gffcomp_dir/all_tissues.tracking'
-    params: qdir='data/filter_tx_quant_files/'
-    output: 'data/exp_files/all_tissues_complete_quant.tsv.gz', 'data/misc/gfc_TCONS_to_st_MSTRG.tsv'
+    input: qfiles=tissue_to_sample_all(sample_dict), track_file='data/gffcomp_dir/all_tissues.tracking'
+    params: qdir='data/filter_tx_quant_files'
+    output: 'data/exp_files/all_tissues_complete_quant.rdata', 'data/misc/gfc_TCONS_to_st_MSTRG.tsv'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/TCONS_to_tissueMSTRG.R {working_dir} {params.qdir} {sample_file} {output}
+        Rscript scripts/TCONS_to_tissueMSTRG.R {working_dir} {params.qdir} {sample_file} {input.track_file} {output}
         '''
 
 rule run_trans_decoder:

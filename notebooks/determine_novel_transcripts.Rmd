@@ -1,0 +1,425 @@
+---
+title: "Determine Novel Transcript.R"
+output: html_notebook
+---
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/eyeintegration_splicing/')
+#knitr::opts_knit$set(root.dir = '/data/swamyvs/eyeintegration_splicing/')
+```
+
+
+```{r}
+library(tidyverse)
+args <- c('~/NIH/eyeintegration_splicing/',
+          'data/gtfs/all_tissues.combined.gtf',
+          'ref/gencode_comp_ano.gtf',
+          'sampleTableDev.tsv')
+
+#args <- commandArgs(trailingOnly = T)
+working_dir <- args[1]
+gfc_gtf_file <- args[2]
+ref_gtf <- args[3]
+sample_table_file <- args[4]
+setwd(working_dir)
+```
+
+I previously been assuming that transcriptional diversity is largely due to Splicing, but in reality there are multiple forms of RNA processing, splicing + alternative polyadenylation as well as alternative transcriptional start sites
+
+
+```{r}
+gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file)
+base_ref <- rtracklayer::readGFF('ref/gencode_comp_ano.gtf') %>% mutate(origin='gencode', seqid=as.character(seqid))
+
+ensembl_ref <- rtracklayer::readGFF('ref/ensembl_ano.gtf') %>% mutate(seqid=as.character(seqid), origin='ensembl')
+chr <-  paste0('chr', ensembl_ref$seqid %>% as.character)
+non_chr <-  ensembl_ref$seqid %>% as.character %>% as.numeric %>% is.na 
+ensembl_ref <- ensembl_ref %>% mutate(seqid=replace(seqid %>% as.character,!non_chr, chr[!non_chr]))
+
+refseq_ucsc <- rtracklayer::readGFF('ref/ucsc.gtf')  %>% mutate(origin='ucsc', seqid=as.character(seqid))
+
+refseq_ncbi <- rtracklayer::readGFF('ref/refseq_ncbi.gff3') %>% as.tibble
+seq2reg <- refseq_ncbi %>% filter(type == 'region', !is.na(chromosome), chromosome!='Unknown') %>% select(seqid, chromosome) %>% 
+    distinct %>%
+    mutate(seqid=as.character(seqid), rep_seq = paste0('chr', chromosome), rep_seq=case_when(rep_seq=='chrX' ~ 'X',
+                                                                                         rep_seq=='chrY' ~ 'Y',
+                                                                                         TRUE ~ rep_seq))
+refseq_ncbi <- inner_join(refseq_ncbi, seq2reg[,-2]) %>% rename(region_id=seqid, seqid=rep_seq) %>% 
+    select(seqid, region_id, everything()) %>% mutate(origin='ncbi')
+
+```
+
+
+
+```{r}
+all_transcripts <- rbind(
+                        base_ref %>% filter(type == 'transcript') %>% select(seqid, strand, start, end, origin),
+                        ensembl_ref %>% filter(type == 'transcript') %>% select(seqid, strand, start, end, origin),
+                        refseq_ucsc %>% filter(type == 'transcript') %>% select(seqid, strand, start, end, origin),
+                        refseq_ncbi %>% filter(type == 'transcript') %>% select(seqid, strand, start, end, origin)
+                        ) %>% mutate(seqid=as.character(seqid)) %>% filter(!duplicated(.[,-5]))
+
+table(all_transcripts$origin)
+
+
+```
+
+
+```{r}
+
+start_dist <- base_ref %>% filter(exon_number == '1') %>% group_by(gene_id) %>% summarise(max_dist=max(start) -min(start))
+start_dist %>% filter(max_dist >0) %>% pull(max_dist) %>% quantile(seq(0,1,.1))
+
+
+```
+
+
+
+
+```{r}
+
+all_exons <- rbind(
+                base_ref %>% filter(type == 'exon') %>% select(seqid, strand, start, end, origin),
+                ensembl_ref %>% filter(type == 'exon') %>% select(seqid, strand, start, end, origin),
+                refseq_ucsc %>% filter(type == 'exon') %>% select(seqid, strand, start, end, origin),
+                refseq_ncbi %>% filter(type == 'exon') %>% select(seqid, strand, start, end, origin)
+                ) %>% 
+    mutate(seqid=as.character(seqid)) %>% filter(!duplicated(.[,-5]))
+
+#save(all_transcripts, all_exons, file='rdata/all_ref_tx_exons.rdata')
+load('rdata/all_ref_tx_exons.rdata')
+```
+
+
+Lets remove novel single exon transcripts, as well as novel loci from our novel exon set
+
+
+
+```{r}
+
+novel_transcripts <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(!grepl('TCONS', gene_name))
+novel_loci <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(grepl('TCONS', gene_name))
+novel_single_exon_tx <- novel_transcripts$transcript_id %>% {filter(gfc_gtf, transcript_id  %in% .)} %>% group_by(transcript_id) %>%
+    summarise(count=n()) %>% filter(count == 2) %>% pull(transcript_id) %>%  {filter(novel_transcripts, transcript_id %in% .)}
+novel_transcripts <- filter(novel_transcripts, !transcript_id %in% novel_single_exon_tx$transcript_id)
+
+
+
+novel_exons <- gfc_gtf %>% 
+    filter(type == 'exon', !transcript_id %in% novel_loci$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id ) %>%
+    select(seqid, strand, start, end) %>% 
+    anti_join( all_exons) %>%
+    mutate(id=paste0('nvl_exon', 1:nrow(.)))
+
+nvl_start <- anti_join(novel_exons %>% select(seqid, strand, start, id), all_exons) %>% { novel_exons$id  %in% .$id}
+nvl_end <- anti_join(novel_exons %>% select(seqid, strand, end, id), all_exons) %>% {novel_exons$id  %in% .$id }
+
+novel_exons <- novel_exons %>% mutate(nv_type=case_when(nvl_start & nvl_end ~ 'novel_exon',
+                                         !nvl_start & nvl_end ~ 'A3SS',
+                                         nvl_start & !nvl_end ~ 'A5SS',
+                                         !nvl_start & !nvl_end ~ 'RI'))
+
+
+
+
+table(novel_exons$nv_type)
+```
+
+
+```{r}
+all_exon_starts <- gfc_gtf %>% filter(exon_number == 1) %>%  select(seqid,strand, start, end) %>% distinct %>% mutate(is.TSS=T)
+all_exon_ends <- gfc_gtf %>% filter(type == 'exon') %>% group_by(transcript_id) %>% 
+    summarise(seqid=last(seqid), strand=last(strand), start=last(start), end=last(end)) %>% select(-transcript_id) %>% distinct %>% mutate(is.TES=T)
+novel_exons <-  novel_exons %>% left_join(all_exon_starts) %>% left_join(all_exon_ends)
+novel_exons[is.na(novel_exons)] <- F
+novel_exons <-novel_exons %>% mutate(nv_type_rc= case_when(is.TSS ~ 'TSS', is.TES ~ 'TES', TRUE ~ nv_type))
+table(novel_exons$nv_type_rc) %>% print
+filter(novel_exons, nv_type_rc == 'TSS') %>% pull(nv_type) %>% table %>% print
+filter(novel_exons, nv_type_rc == 'TES') %>% pull(nv_type) %>% table %>% print
+
+```
+
+
+
+
+
+investigtate the different TSS 
+-remove novel loci from gtf, can't compare them toa referernce for alt TSS
+-remove anything thats has been previously annotated
+-there are 3 possible cases for the multiple first exon situation
+    case1 - Both exons start at the same location - the difference must be due 3' end being different, hence due to splicing; ignore
+    case2 - the two exons have completely different starts and ends (ALT FE); keep
+    case3 - the two exons have same end  but different starts(tandem); keep
+ 
+strategy to identify TSS: first, filter for genes that have multiple FE; then group samples by start; remove     
+
+```{r}
+
+gfc_gtf_ano <- filter(gfc_gtf, !transcript_id %in% novel_loci$transcript_id)
+gfc_gtf_ref <- filter(gfc_gtf_ano, !transcript_id %in% novel_transcripts$transcript_id)
+
+gfc_gtf_full <-  gfc_gtf_ano %>% filter(transcript_id  %in% novel_transcripts$transcript_id) %>% select(seqid, strand, start, end) %>%
+    distinct %>% anti_join(gfc_gtf_ref) %>% anti_join(all_exons) %>% anti_join(all_transcripts) %>%  
+    mutate(is.novel=T) %>% left_join(gfc_gtf_ano, .) %>% mutate(is.novel=replace_na(is.novel, F))
+
+
+# 
+# uniq_tss <-  gfc_gtf_full %>% filter(exon_number==1) %>% 
+#     select(seqid, strand, start) %>% distinct %>% 
+#     mutate(tss_id=paste0('TSS_', 1:nrow(.)))
+
+same_start <-  gfc_gtf_full %>% filter(exon_number==1) %>%
+     select(seqid, strand, start, end, gene_name) %>% distinct %>%  
+    group_by(seqid, strand ,start) %>% 
+     summarise(count=n(), max_end=max(end), s_gene_name=first(gene_name)) %>% filter( count >1)
+
+uniq_starts <- gfc_gtf_full %>% filter(exon_number==1) %>%
+     select(seqid, strand, start, end, gene_name) %>% distinct %>% 
+     anti_join(same_start) %>% 
+    bind_rows(., same_start %>% select(seqid, strand, start, end=max_end, gene_name=s_gene_name))
+
+multi_start_genes <- uniq_starts %>% group_by(gene_name) %>% summarise(count=n()) %>% filter(count >1) %>% pull(gene_name)
+uniq_start_multi_gene <- novel_exons %>% mutate(novel_start=nvl_start) %>% filter(novel_start) %>% 
+    select(seqid, strand, start, novel_start) %>% distinct %>%  
+    left_join(uniq_starts, .) %>% mutate(novel_start=replace_na(novel_start, F)) %>% filter(gene_name %in% multi_start_genes)
+
+
+
+
+
+
+```
+
+Now lets look at the 3' ends
+
+```{r}
+
+terminal_exons <-  gfc_gtf_full %>% filter(type == 'exon') %>% group_by(transcript_id) %>% 
+    summarise(seqid=last(seqid), strand=last(strand), start=last(start), end=last(end), gene_name=last(gene_name)) %>% 
+    select(-transcript_id) %>%  distinct
+
+same_ends <- terminal_exons %>% group_by(seqid, strand, end) %>% 
+    summarise(min_start=min(start), count=n(), s_gn=first(gene_name)) %>% filter(count>1)
+uniq_ends <- terminal_exons %>% anti_join(same_ends) %>% 
+    bind_rows(same_ends %>% select(seqid, strand, start=min_start, end, gene_name =s_gn))
+multi_end_genes <- uniq_ends %>% group_by(gene_name) %>% summarise(count=n()) %>% filter(count>1) %>% pull(gene_name)
+
+uniq_ends_multi_gene <- novel_exons %>% mutate(novel_end=nvl_end) %>% select(seqid, strand, end, novel_end) %>% 
+    filter(novel_end) %>% distinct %>% 
+    left_join(uniq_ends, .) %>% mutate(novel_end=replace_na(novel_end, F)) %>% filter(gene_name %in% multi_end_genes)
+
+novel_exons_TSES <- novel_exons %>% left_join( uniq_start_multi_gene %>% select(seqid, strand, start, novel_start) %>% distinct) %>% 
+    left_join(uniq_ends_multi_gene %>% select(seqid, strand, end, novel_end)) %>% rename(novelTSS=novel_start, novelTES=novel_end)
+novel_exons_TSES[is.na(novel_exons_TSES)] <- F
+both <-  novel_exons_TSES %>% filter(novelTSS, novelTES) %>% select(seqid, strand, start, end) %>% inner_join(gfc_gtf, .) %>%
+    pull(transcript_id) %>% {filter(gfc_gtf_full, transcript_id %in% .)}
+both %>% group_by(transcript_id) %>% summarise(count=n()) %>% filter(count>2) %>% pull(transcript_id) %>% 
+    {filter(gfc_gtf, transcript_id %in% .)} %>% inner_join(novel_exons_TSES %>% select(seqid, strand, start, end ))
+
+
+
+
+```
+
+```{r}
+uniq_start_multi_gene <-  uniq_start_multi_gene %>% mutate(id=paste0('TSS_', 1:nrow(.)))
+uniq_start_multi_gene %>% mutate(phase =999) %>%  select(seqid, start, end, id,phase, strand) %>% 
+    write_tsv('/Volumes/data/eyeintegration_splicing/testing/uniq_starts_labled_SS.bed', col_names = F)
+
+#crossmap bed ref/hg38ToHg19.over.chain.gz testing/uniq_starts_labled_SS.bed testing/uniq_starts_labeled_SS_b37.bed
+
+
+
+
+
+```
+
+
+
+
+Reclassify events 
+
+```{r}
+novel_exons_TSES <- novel_exons_TSES %>% mutate(nv_type_rc = case_when(novelTSS ~ 'novel_TSS',
+                                                   novelTES ~ 'novel_TES',
+                                                   TRUE ~ nv_type))
+
+
+
+
+
+table(novel_exons_TSES$nv_type) %>% print
+table(novel_exons_TSES$nv_type_rc) %>% print
+
+
+
+
+```
+
+Quite a big shift in annotaion, almost half of the novel exons are at the start or the end 
+
+
+How many of the 
+
+```{r}
+all_a3ss <- list.files('/Volumes/data/eyeintegration_splicing/rmats_out/', pattern = )
+
+a3ss <- read_tsv('/Volumes/data/eyeintegration_splicing/rmats_out/RPE_Fetal.Tissue/fromGTF.A3SS.txt') %>%
+    rename(longStart=longExonStart_0base) %>% mutate(longStart=longStart+1, shortES=shortES+1)
+a3_long <- a3ss %>% select(seqid=chr, strand, start=longStart, end=longExonEnd) %>% distinct
+novel_exons_TSES %>% filter(nv_type_rc == 'A3SS') %>% inner_join(a3_long) %>% nrow %>% print
+
+a3_short <- a3ss %>% select(seqid=chr, strand, start=shortES, end=shortEE) %>% distinct
+novel_exons_TSES %>% filter(nv_type_rc == 'A3SS') %>% inner_join(a3_short) %>%nrow %>% print 
+
+#rip my five key
+a5ss <-  read_tsv('/Volumes/data/eyeintegration_splicing/rmats_out/RPE_Fetal.Tissue/fromGTF.A5SS.txt') %>%
+    rename(longStart=longExonStart_0base) %>% mutate(longStart=longStart+1, shortES=shortES+1)
+
+a5_long <- a5ss %>% select(seqid=chr, strand, start=longStart, end=longExonEnd) %>% distinct
+novel_exons_TSES %>% filter(nv_type_rc == 'A5SS') %>% inner_join(a5_long) %>% nrow %>% print
+
+a5_short <- a5ss %>% select(seqid=chr, strand, start=shortES, end=shortEE) %>% distinct
+
+novel_exons_TSES %>% filter(nv_type_rc == 'A5SS') %>% inner_join(a5_short) %>% nrow %>% print 
+
+
+```
+
+barely any of the events that are alt spliced generated are being called as such
+
+```{r}
+
+uniq_start_multi_gene %>% group_by(gene_name) %>% summarise(count=n()) %>% pull(count) %>% summary 
+test <- head(uniq_start_multi_gene, 1000)
+unique_starts_ano <-  uniq_start_multi_gene %>% group_by(gene_name) %>% do(mutate(., id= paste(first(gene_name), 1:nrow(.), sep = '_')))
+library(bedr)
+index <- get.example.regions()
+
+a <- index[[1]]
+b <- index[[2]]
+k <- bedr.merge.region(a)
+uniq_starts_bed <- unique_starts_ano %>%ungroup %>%  select(seqid, start, end , id) %>% mutate(seqid=as.character(seqid))
+write_tsv(uniq_starts_bed, '/tmp/to_merge.bed', col_names = F)
+```
+
+```{bash}
+bedtools sort -i /tmp/to_merge.bed | bedtools merge -c 4 -o collapse,count -i stdin > /tmp/merged.bed
+#bedtools sort -i /tmp/to_merge.bed | bedtools merge -i stdin > /tmp/merged.bed
+```
+
+
+```{r}
+merged <- read_tsv('/tmp/merged.bed', col_names = c('seqid', 'start', 'end', 'lab', 'count'))
+
+k <- merged$lab[2]
+
+get_max <- function(l){count <- table(l);m=which.max(count); return(names(count)[m])}
+
+
+genes_all_distinct <- merged %>% mutate(max_gene=str_split(lab, '_|,') %>% sapply( function(x) x[seq(1,length(x), 2)] %>%
+                                                                                       get_max)) %>% 
+    group_by(max_gene) %>% summarise(all_distinct=n() == sum(count), count=n()) %>% filter(all_distinct)
+
+ 
+ 
+ 
+ 
+```
+
+
+
+bootstraps 
+
+```{r}
+bootstraps <- read_tsv('/Volumes/data/eyeintegration_splicing/testing/salmon_test/quant_bootstraps.tsv.gz', col_names = F) %>% 
+    mutate(transcript_id=X1, transcript_var=apply(.[,-1], 1,var)) %>% select(transcript_id, transcript_var)
+quantile(bootstraps$transcript_var, seq(0,1,.1))
+t_var <- bootstraps$transcript_var %>% sort %>% .[1:(length(.)-21)]
+max_var <- mean(t_var)+ sd(t_var)*3    
+sum(t_var>max_var)
+
+
+```
+
+
+fantom
+
+```{r}
+
+fantom_tss <- read_tsv('ref/fantom_hg38.bed', col_names = F)
+k <- read_tsv('TSS_human.bed.gz', col_names = F, skip=1) %>% mutate(len=X3-X2) #%>% pull(len) %>% quantile(seq(0,1,.1))
+k %>% pull(len) %>% quantile(seq(0,1,.1))
+
+
+fanrom_raw <- read_tsv('fantom_TSS.bed.gz', col_names = F, skip = 1) %>% select(seqid=X1, strand=X6, start=X2, end=X3)
+fantom_loc <- fantom_tss %>% select(seqid=X1, strand=X6, start=X2, end=X3) %>% mutate(seqid=as.character(seqid), 
+                                                                                strand=as.character(strand))
+
+uniq_start_multi_gene <-  uniq_start_multi_gene %>% mutate(seqid=as.character(seqid),  strand=as.character(strand))
+
+
+select(uniq_start_multi_gene, seqid, start, end) %>% 
+    write_tsv('/Volumes/data/eyeintegration_splicing/testing/uniq_starts.bed', col_names = F)
+
+bed_38to37 <- read_tsv('/Volumes/data/eyeintegration_splicing/testing/uniq_starts_37.bed', col_names = c('seqid', 'start', 'end'))
+tssg37t038 <- read_tsv('/Volumes/data/eyeintegration_splicing/testing/fantomg37To38.bed', col_names = F) %>% select(seqid=X1, start=X2, end=X3)
+
+inner_join(tssg37t038,uniq_start_multi_gene)
+
+
+
+```
+
+Ignore this
+
+
+for QAPA
+```{r}
+
+ens_ids <- ensembl_ref %>% select(gene_id, transcript_id, gene_biotype, transcript_biotype, gene_name) %>% filter(!is.na(transcript_id)) %>%  distinct
+colnames(ens_ids) <- c('Gene stable ID', 'Transcript stable ID', 'Gene type', 'Transcript type', 'Gene name')
+write_tsv(ens_ids, '/Volumes/data/eyeintegration_splicing/testing/qapa/ensembl_identifiers.txt')
+
+gfc_ids <-  gfc_gtf %>%  mutate(gene_biotype='protein_coding', transcript_type='protein_coding') %>%  
+    select(gene_id, transcript_id, gene_biotype, transcript_type, gene_name) %>% distinct 
+colnames(gfc_ids) <- c('Gene stable ID', 'Transcript stable ID', 'Gene type', 'Transcript type', 'Gene name')
+write_tsv(gfc_ids, '/Volumes/data/eyeintegration_splicing/testing/qapa/gfc_ids.txt')
+
+genc_ids <- base_ref %>% 
+    #filter(gene_type == 'protein_coding', transcript_type == 'protein_coding') %>%  
+    select(gene_id, transcript_id, gene_type, transcript_type, gene_name) %>% 
+    filter(!is.na(transcript_id)) %>% distinct 
+colnames(genc_ids) <- c('Gene stable ID', 'Transcript stable ID', 'Gene type', 'Transcript type', 'Gene name')
+
+write_tsv(genc_ids, '/Volumes/data/eyeintegration_splicing/testing/qapa/genc_ids.txt')
+```
+
+QAPA results
+```{r}
+qapa_res <- read_tsv('/Volumes/data/eyeintegration_splicing/testing/qapa/output.utrs.bed', col_names = F)
+
+
+
+```
+
+
+
+
+```{r}
+
+
+x <- c(1,20,300,4000,50)
+y <- t(x)
+colnames(y) <- c('a','b','c','d','e')
+prcomp(cbind(y,y))
+
+
+```
+
+
+
+
+
+
+

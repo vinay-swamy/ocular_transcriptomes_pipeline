@@ -1,0 +1,82 @@
+---
+title: "Fantom vs starts"
+output: html_notebook
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/eyeintegration_splicing/')
+#knitr::opts_knit$set(root.dir = '/data/swamyvs/eyeintegration_splicing/')
+```
+
+```{r}
+library(tidyverse)
+load('rdata/novel_exon_classification.rdata')
+gfc_gtf <- rtracklayer::readGFF('data/gtfs/all_tissues.combined.gtf')
+```
+
+find closest fantom peak to to TSS
+
+```{r}
+uniq_start_multi_gene <- uniq_start_multi_gene %>% mutate(id=paste0('TSS_', 1:nrow(.)))
+ref_starts <- uniq_start_multi_gene %>% filter(!novel_start) %>% mutate(tss_end=start+1, score =999 ) %>% 
+    select(seqid, start, tss_end, id, score, strand)
+novel_starts <- uniq_start_multi_gene %>% filter(novel_start) %>% mutate(tss_end=start+1, score =999) %>% 
+    select(seqid, start, tss_end, id, score, strand)
+write_tsv(ref_starts, '/Volumes/data/eyeintegration_splicing/testing/ref_tss.bed', col_names = F)
+write_tsv(novel_starts,'/Volumes/data/eyeintegration_splicing/testing/novel_tss.bed', col_names = F)
+
+```
+
+
+This need to run on biowulf 
+```{bash}
+crossmap bed ref/hg38ToHg19.over.chain.gz testing/ref_tss.bed testing/ref_tss_b19.bed
+bedtools sort -i testing/ref_tss_b19.bed > testing/ref_tss_b19_sorted.bed
+crossmap bed ref/hg38ToHg19.over.chain.gz testing/novel_tss.bed testing/novel_tss_b19.bed
+bedtools sort -i testing/novel_tss_b19.bed >  testing/novel_tss_b19_sorted.bed
+
+bedtools closest -s -D ref -a testing/ref_tss_b19_sorted.bed -b testing/TSS_human_sorted.bed.gz  | gzip -c - > testing/ref_starts_closest_cage_peak.bed.gz
+bedtools closest -s -D ref -a testing/novel_tss_b19_sorted.bed -b testing/TSS_human_sorted.bed.gz  | gzip -c - > testing/novel_starts_closest_cage_peak.bed.gz
+
+```
+
+
+
+```{r}
+closest_ref <- read_tsv('/Volumes/data/eyeintegration_splicing/testing/ref_starts_closest_cage_peak.bed.gz', col_names = F )
+novel_closesr <- read_tsv('/Volumes/data/eyeintegration_splicing/testing/novel_starts_closest_cage_peak.bed.gz', col_names = F)
+closest_ref %>% filter(abs(X16)<=500) %>% pull(X4) %>% unique %>% length %>% {./nrow(ref_starts)}
+novel_closesr %>%  filter(abs(X16) <=500) %>% pull(X4) %>% unique %>% length %>% {./nrow(novel_starts)}
+near_peak <- bind_rows(closest_ref %>% mutate(near_peak=abs(X16)<=500) %>% select(id=X4, near_peak),
+                       novel_closesr %>% mutate(near_peak=abs(X16)<=500) %>% select(id=X4, near_peak))
+load('data/exp_files/all_tissues_complete_quant.rdata')
+complete_quant[is.na(complete_quant)] <- 0 # 0 out undetected for now
+quant_row_sum <- tibble(transcript_id=complete_quant$transcript_id, total_exp=rowSums(complete_quant[,-1]))
+tss_quant_sum <- filter(gfc_gtf, type == 'exon') %>% 
+    select(seqid, strand, start, end, transcript_id) %>% 
+    inner_join(uniq_start_multi_gene) %>%
+    left_join(quant_row_sum) %>% 
+    group_by(id) %>% 
+    summarise(total_quant=sum(total_exp)) %>%
+    inner_join(near_peak)
+
+tssQsum_close <- filter(tss_quant_sum, near_peak)
+tssQsum_far <- filter(tss_quant_sum, !near_peak)
+
+tibble(quantile=seq(0,100,10), close= quantile(tssQsum_close$total_quant, seq(0,1,.1)), far=quantile(tssQsum_far$total_quant, seq(0,1,.1)) )
+ggplot()+
+    geom_density(data=tibble(close=tssQsum_close$total_quant), aes(x=close), color='red')+
+    geom_density(data=tibble(far=tssQsum_far$total_quant), aes(x=far), color='blue')+
+    xlim(c(0,10000))+
+    theme_minimal()
+
+ggplot()+
+    geom_boxplot(data=tibble(close=tssQsum_close$total_quant), aes(y=close), color='red')+
+    geom_boxplot(data=tibble(far=tssQsum_far$total_quant), aes(y=far), color='blue')+
+    ylim(c(0,1000))+
+    #xlim(c(0,10000))+
+    theme_minimal()
+
+```
+So there doesn't really seem to be a huge difference in global expresison between transcripts with TSS in cage  

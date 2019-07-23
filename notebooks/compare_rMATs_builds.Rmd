@@ -1,0 +1,87 @@
+---
+title: "Comparing different rmats outputs "
+output: html_notebook
+---
+
+```{r setup}
+
+knitr::opts_knit$set(root.dir ='/Volumes/data/rerun_eyesplice/run_1/')
+#knitr::opts_knit$set(root.dir ='/Volumes/data/eyesplice_testing')
+```
+
+
+
+behavior of rmats changes based on gtf used as input -  this is probably what has been causing a some problems with rmats. 
+
+all are run on the same raw fastqs  which are mapped using STAR that uses a specifc gtf - vanilla=gencode, tissue=tissue_specific ST, all = all_tissues_merged_gtf. currently running a toy example with only 5 samples per tissue and 3 tissues( lung, RPE_Fetal, and synth)
+From past number hits increases with sample size, but largely increases with false positives.
+```{r}
+library(tidyverse)
+
+
+rpe_rfiles <- paste0('rmats_out_',c('all','RPE_Fetal.Tissue','vanilla'), '/RPE_Fetal.Tissue/SE.MATS.JC.txt')
+
+rpe <- lapply(rpe_rfiles, read_tsv)
+names(rpe) <- c('all','RPE_Fetal.Tissue','vanilla')
+
+lapply(rpe, dim)
+
+```
+
+it occured to me that the increase might be to more reads mapping for the de novo builds
+
+```{r}
+read_STAR_log <- function(build){
+    logs <- list.files(paste0('STARbams_',build),'raw.Log.final.out', recursive = T, full.names = T )
+    names <- str_split(logs, '/') %>% sapply(function(x) x[2])
+    log_data <-  lapply(logs, function(path) read_delim(path, '|', col_names = F) %>% mutate(X2=gsub('\t|%', '',X2)) %>% .[c(24,26,28:30),2]%>% t() ) %>% do.call(rbind, .) %>% as.data.frame() %>% mutate_all(as.numeric) %>% {./100} %>% mutate(ID=names) %>% select(ID, everything())
+    colnames(log_data) <- c('ID','multi_map_reads', 'too_many_locs_reads', 'unmapped_mismatch', 'umapped_tooshort', 'unmapped_other')
+    log_data
+
+}
+log_info <- lapply(c('all','RPE_Fetal.Tissue','vanilla'), read_STAR_log)
+names(log_info) <- c('all','RPE_Fetal.Tissue','vanilla') 
+View(log_info$all)
+View(log_info$vanilla)
+diff_allvs_vanilla <- log_info$all[,-1] - log_info$vanilla[,-1]
+
+diff_allvs_rpe <- log_info$all[,-1] - log_info$RPE_Fetal.Tissue[,-1]
+
+```
+
+on average there is a slight increase in multimapped and overly multimapped reads in the all and tissue specfic builds, which makes sense since we're trying to put things into more bins.
+
+comparing the actual locations - 
+
+```{r}
+rpe_locs <- lapply(rpe, function(x) x %>% select(chr, strand, start=exonStart_0base, end=exonEnd) %>% distinct)
+lapply(rpe_locs, dim)
+common <- inner_join(rpe_locs$vanilla, rpe_locs$RPE_Fetal.Tissue) %>% inner_join(rpe_locs$all)
+sapply(rpe_locs, nrow) -nrow(common)
+
+
+```
+the common set is very close to the vanilla set, but fairly different from the 
+
+So despite the slight decrease in mapped reads, there is a definite increase in the number of discovered events when using rMATs, so what we should do is run rMATs on only gencode version
+
+now lets compare the actual rmats builds
+
+
+
+```{r}
+setwd('/Volumes/data/rerun_eyesplice/run_1/')
+vanilla <- read_tsv('rmats_out_vanilla/RPE_Fetal.Tissue/SE.MATS.JC.txt')
+all <- read_tsv('rmats_out_all/RPE_Fetal.Tissue/SE.MATS.JC.txt')
+vanilla_run_on_all <- read_tsv('rmats_vanilla_on_all_gtf/SE.MATS.JC.txt')
+all_run_onvanilla <- read_tsv('rmats_all_on_gc_gtf/SE.MATS.JC.txt')
+
+
+```
+
+okay, so there is a slight increase in detected exons(200-300) if the build is realigned on the GTF; I don't think that this its worth the compute time/ space  to realign all samples and 
+
+
+
+
+

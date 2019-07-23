@@ -1,0 +1,119 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup}
+
+knitr::opts_knit$set(root.dir ='/Volumes/data/rerun_eyesplice')
+#knitr::opts_knit$set(root.dir ='/Volumes/data/eyesplice_testing')
+```
+
+
+first just pull all exons
+```{r}
+
+rfiles <- list.files("/Volumes/data/rerun_eyesplice/rmats_out_vanilla/RPE_Fetal.Tissue", 'MATS.JC.txt', full.names = T) %>% 
+    .[!grepl('MXE',.)]
+events <- str_split(rfiles, '/|.MATS') %>% sapply(function(x)x[7])
+read_rmats <- function(file){
+    data <- read_tsv(file)
+    middle <- data[,4:7]
+    left <- data[,c(4,5,8,9)]
+    right <- data[,c(4,5,10,11)]
+    colnames(middle) <- colnames(left) <- colnames(right) <- c('seqid','strand', 'start', 'end')
+    return(rbind(middle, left, right ))
+}
+
+all_rmats_exons <- suppressMessages(lapply(rfiles, read_rmats) %>% bind_rows() %>% distinct())
+
+
+```
+
+
+
+It occured to me that I should test out my idea that rMATs can detect splicing relative to the GTF
+
+```{r}
+library(tidyverse)
+
+basic_gtf <- rtracklayer::readGFF('testing/gtf_comp/gencode_basic.gtf')
+comp_gtf <- rtracklayer::readGFF('testing/gtf_comp/gencode_full.gtf')
+print(basic_gtf %>% filter(type == 'gene') %>% nrow )
+print(comp_gtf %>% filter(type == 'gene') %>% nrow )
+```
+
+both have the same number of genes, 
+
+```{r}
+basic_gtf %>% filter(type == 'transcript') %>% nrow 
+comp_gtf %>% filter(type == 'transcript') %>% nrow
+sample_table <- read_tsv('sampleTableV7.tsv', col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
+rpe_samps <- filter(sample_table, subtissue == 'RPE_Fetal.Tissue') %>% pull(sample)
+qfiles <- paste0('testing/gtf_comp/quant_files/', rpe_samps, '/quant.sf')
+names <- str_split(qfiles, '/') %>% sapply(function(x)x[[4]])
+txi <- tximport::tximport(files = qfiles, type = 'salmon', txOut = T, countsFromAbundance = 'lengthScaledTPM')
+colnames(txi$counts) <- names  
+counts <- txi$counts %>% as.data.frame() %>% mutate(transcript_id=rownames(.)) %>% select(transcript_id, everything())
+#evaluate transcripts only expressed in RPE
+keep <- rowSums(counts[,-1]) >= (ncol(counts)-1)*1
+counts_exp <- counts[keep,]
+
+```
+but the comp one has double the amount of transcripts, and I'm going to assume that all of these extra transcripts arise due to alternative splicing
+
+
+```{r}
+basic_rpe <- filter(basic_gtf, transcript_id %in%  counts_exp$transcript_id)
+comp_rpe <- filter(comp_gtf, transcript_id  %in% counts_exp$transcript_id)
+basic_exons_0b <- basic_rpe %>% filter(type == 'exon') %>% select(seqid, strand, start, end) %>% mutate(start=start-1) %>% distinct
+comp_exons_0b <- comp_rpe %>% filter(type == 'exon') %>% select(seqid, strand, start, end) %>% 
+    mutate(start=start-1, id=paste0('ex_',1:nrow(.))) %>% distinct 
+comp_not_in_basic <- anti_join(comp_exons_0b, basic_exons_0b) %>% distinct
+basic_starts <- basic_exons_0b %>% select(-end)
+basic_ends <- basic_exons_0b %>% select(-start)
+cnb_startInRef <- comp_not_in_basic %>% inner_join(basic_starts) %>% {comp_not_in_basic$id  %in% .$id }
+cn_endInRef <- comp_not_in_basic %>% inner_join(basic_ends) %>% {comp_not_in_basic$id %in% .$id}
+
+fully_novel_exons <- (!cnb_startInRef) & (!cn_endInRef)
+a5ss <- (cnb_startInRef) & (!cn_endInRef)
+a3ss <- (!cnb_startInRef) & (cn_endInRef)
+RI <- (cnb_startInRef) & (cn_endInRef)
+
+comp_novel_anno <- comp_not_in_basic %>% mutate(type=case_when( fully_novel_exons ~ 'novel exon',
+                                                               a5ss ~ 'a5ss',
+                                                               a3ss ~ 'a3ss',
+                                                               RI ~ 'ri'))
+
+
+
+table(comp_novel_anno$type)
+
+```
+
+
+
+lets compare the 2
+
+
+
+```{r}
+library(matrixStats)
+rmats_in_comp_gtf <- inner_join(all_rmats_exons, comp_novel_anno) %>% distinct
+in_comp_not_rmats <- anti_join(comp_novel_anno, all_rmats_exons) %>% distinct 
+print(nrow(rmats_in_comp_gtf)/nrow(comp_novel_anno))
+
+tx2exon <- filter(comp_gtf, type =='exon') %>% select(seqid, strand, start, end, transcript_id) %>% mutate(start=start-1)
+exp_irm <- inner_join(tx2exon, rmats_in_comp_gtf) %>% pull(transcript_id) %>% unique() %>% {filter(counts_exp, transcript_id %in% .)} %>% 
+select(-transcript_id) %>% as.matrix %>% {c(mean(rowMeans(.)), median(rowMeans(.)), sd(.))}
+
+exp_nrm <- inner_join(tx2exon, in_comp_not_rmats) %>% pull(transcript_id) %>% unique() %>% {filter(counts_exp, transcript_id %in% .)} %>% 
+select(-transcript_id) %>% as.matrix %>% {c(mean(rowMeans(.)), median(rowMeans(.)), sd(.))}
+
+```
+
+
+
+
+
+

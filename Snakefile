@@ -123,7 +123,7 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input:'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissue_incCounts.tsv', stringtie_full_gtf,\
+    input:'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', stringtie_full_gtf,\
     'data/exp_files/all_tissues_complete_quant.rdata',\
     #stringtie_full_gtf,\
     'data/seqs/best_orfs.transdecoder.pep'
@@ -345,7 +345,7 @@ rule runrMATS:
 rule process_rmats_output:
     input: expand('rmats_out/{sub_tissue}/{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
     params: rmats_od='rmats_out/', rm_locdir='ref/rmats_locs/'
-    output: 'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissue_incCounts.tsv'
+    output: 'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv'
     shell:
         '''
         module load {R_version}

@@ -123,8 +123,7 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input:expand('rmats_out/{tissue}/{event}.MATS.JC.txt',tissue=subtissues, event=rmats_events), stringtie_full_gtf,\
-    expand('data/rmats/all_tissues.{type}.tsv', type=['incCts','PSI']),\
+    input:'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissue_incCounts.tsv', stringtie_full_gtf,\
     'data/exp_files/all_tissues_complete_quant.rdata',\
     #stringtie_full_gtf,\
     'data/seqs/best_orfs.transdecoder.pep'
@@ -344,22 +343,13 @@ rule runrMATS:
         '''
 
 rule process_rmats_output:
-    input: 'rmats_out/{sub_tissue}/{event}.MATS.JC.txt'
-    params: event= lambda wildcards: '{}.MATS.JC.txt'.format(wildcards.event)
-    output: expand('rmats_clean/{{sub_tissue}}/{type}.{{event}}.MATS.JC.txt',type=['incCts','PSI'])
+    input: expand('rmats_out/{sub_tissue}/{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
+    params: rmats_od='rmats_out/', rm_locdir='ref/rmats_locs/'
+    output: 'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissue_incCounts.tsv'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/process_rmats_output.R {working_dir} {input} {params.event} {sample_file} {wildcards.sub_tissue} {output}
-        '''
-
-rule combined_rmats_output:
-    input: expand('rmats_clean/{sub_tissue}/{{type}}.{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
-    output: 'data/rmats/all_tissues.{type}.tsv'
-    shell:
-        '''
-        module load {R_version}
-        Rscript scripts/combine_rmats_output.R {working_dir} {wildcards.type} {output}
+        Rscript scripts/process_rmats_output.R {working_dir} {sample_file} {params.rmats_od} {params.rm_locdir} {output}
         '''
 #***************************************************************************************************************************************
 

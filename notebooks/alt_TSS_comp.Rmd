@@ -1,0 +1,112 @@
+---
+title: "Alternative Transcriptional Start Sites"
+output: html_notebook
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/dev_eyeintegration_splicing/')
+```
+
+
+
+from a very basic level, examine whats going on with different TSS's
+
+```{r}
+library(tidyverse)
+load('data/exp_files/all_tissues_complete_quant.rdata')
+tcons2mstrg <- read_tsv('data/misc/gfc_TCONS_to_st_MSTRG.tsv')
+k <- apply(complete_quant, 2, function(x) sum(is.na(x))) / nrow(complete_quant)
+tibble(sample=names(k), percent_missing=k)
+
+```
+
+
+
+```{r}
+
+load('rdata/novel_exon_classification.rdata')
+complete_quant[is.na(complete_quant)] <- 0
+uniq_start_multi_gene <- uniq_start_multi_gene %>% mutate(id=paste0('TSS_', 1:nrow(.)))
+sample_table <- read_tsv('sampleTableDev.tsv', col_names = c('sample','run', 'paired', 'tissue', 'subtissue', 'origin'))
+gtf <- rtracklayer::readGFF('data/gtfs/all_tissues.combined.gtf')
+gtf_tss <- gtf %>% filter(type == 'exon') %>% select(seqid, strand, start, end, transcript_id, exon_number) %>%
+    inner_join(uniq_start_multi_gene)
+```
+some of these exons may not be the first exon in all associated transcripts
+
+```{r}
+library(limma)
+library(edgeR)
+library(qsmooth)
+
+sample_table[sample_table == 'synth'] <- 'body'
+sample_table <-  sample_table %>% mutate(subtissue=gsub('-|\\.', '_', subtissue), tissue=gsub('-|\\.', '_', tissue) )
+gtf_tss %>% filter(exon_number!=1) %>% nrow 
+gtf_tss <- gtf_tss %>% filter(exon_number == 1) %>% inner_join(complete_quant)
+total_tss_quant <-  gtf_tss[,-(1:8)] %>% group_by(id) %>% summarise_all(sum) %>% .[,sample_table$sample]
+subtissue_fac <- as.factor(sample_table$subtissue)
+quant_smoothed <- total_tss_quant[,sample_table$sample] %>% as.data.frame %>% 
+    qsmooth(object = ., groupFactor = subtissue_fac) %>% qsmoothData %>% as.data.frame
+rownames(quant_smoothed) <- total_tss_quant$id
+
+design_st <- model.matrix(~ 0 + subtissue_fac)
+colnames(design_st) <- levels(subtissue_fac)
+deg <- calcNormFactors(DGEList(quant_smoothed))
+voom_deg <- voom(deg, design = design_st)
+design_target_pairs <-function(levels, target) {
+    n <- length(levels)
+    levels_t <- levels[!grepl(target, levels)]
+    design <- matrix(0,n,n-1)
+    rownames(design) <- levels
+    colnames(design) <- paste(target, levels_t, sep='-')
+    target_idx <- grep(target, levels)
+    design[target_idx,] <- 1
+    for( i in seq_along(colnames(design))){
+        idx <- str_split(colnames(design)[i], '-')[[1]] %>% .[!grepl(target, .)]
+        design[idx,i] <- -1
+    }
+    design
+  }
+cont.mat <- design_target_pairs(levels(subtissue_fac), 'RPE_Fetal_Tissue')
+cmat_cols <- colnames(cont.mat)
+deg_lm_fit <- lmFit(voom_deg, design = design_st)
+
+cont.mat <- cont.mat[colnames(deg_lm_fit),]
+
+all_contasts <- contrasts.fit(fit = deg_lm_fit, contrasts = cont.mat)
+deg_results <- eBayes(all_contasts)
+limma_de_list = list()
+for (i in colnames(deg_results)){
+    lfc <- paste('LFC', i, sep = '-')
+    qval <- paste('qval', i, sep = '-')
+    limma_de_list[[i]] <- topTable(deg_results, coef=i, adjust.method = 'fdr', number=300000) %>% 
+      mutate(id=rownames(.)) %>% select(id, everything()) %>% filter(adj.P.Val <.05, logFC > 2) %>% 
+      select(id, !!lfc :=logFC, !!qval:= adj.P.Val)
+}
+res <-  limma_de_list %>% 
+    reduce(inner_join, by='id')
+
+colnames(deg_results)
+res
+```
+
+
+```{r}
+rpe_spec_tss <- res %>% inner_join(gtf_tss %>% select(transcript_id, id),. )
+rpe_spec_tss_counts <- filter(quant_smoothed,transcript_id %in% rpe_spec_tss$id)
+rpe_spec_gtf <- rtracklayer::readGFF('data/gtfs/filtered_tissue/RPE_Fetal.Tissue.gtf')
+
+rpe_spec_tss_tx <- rpe_spec_tss %>% pull(id) %>% {filter(gtf_tss, id %in% .)} %>% pull(transcript_id) %>% {filter(tcons2mstrg, transcript_id %in% .)}
+
+```
+
+
+
+
+
+
+
+
+
+

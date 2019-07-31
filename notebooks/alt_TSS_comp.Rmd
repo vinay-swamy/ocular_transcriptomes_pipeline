@@ -15,10 +15,8 @@ from a very basic level, examine whats going on with different TSS's
 ```{r}
 library(tidyverse)
 load('data/exp_files/all_tissues_complete_quant.rdata')
-tcons2mstrg <- read_tsv('data/misc/gfc_TCONS_to_st_MSTRG.tsv')
 k <- apply(complete_quant, 2, function(x) sum(is.na(x))) / nrow(complete_quant)
-tibble(sample=names(k), percent_missing=k)
-
+tibble(sample=names(k), percent_missing=k) %>% View
 ```
 
 
@@ -44,7 +42,7 @@ sample_table[sample_table == 'synth'] <- 'body'
 sample_table <-  sample_table %>% mutate(subtissue=gsub('-|\\.', '_', subtissue), tissue=gsub('-|\\.', '_', tissue) )
 gtf_tss %>% filter(exon_number!=1) %>% nrow 
 gtf_tss <- gtf_tss %>% filter(exon_number == 1) %>% inner_join(complete_quant)
-total_tss_quant <-  gtf_tss[,-(1:8)] %>% group_by(id) %>% summarise_all(sum) %>% .[,sample_table$sample]
+total_tss_quant <-  gtf_tss[,-(1:8)] %>% group_by(id) %>% summarise_all(sum)
 subtissue_fac <- as.factor(sample_table$subtissue)
 quant_smoothed <- total_tss_quant[,sample_table$sample] %>% as.data.frame %>% 
     qsmooth(object = ., groupFactor = subtissue_fac) %>% qsmoothData %>% as.data.frame
@@ -71,7 +69,7 @@ design_target_pairs <-function(levels, target) {
 cont.mat <- design_target_pairs(levels(subtissue_fac), 'RPE_Fetal_Tissue')
 cmat_cols <- colnames(cont.mat)
 deg_lm_fit <- lmFit(voom_deg, design = design_st)
-
+colnames(deg_lm_fit)
 cont.mat <- cont.mat[colnames(deg_lm_fit),]
 
 all_contasts <- contrasts.fit(fit = deg_lm_fit, contrasts = cont.mat)
@@ -86,18 +84,15 @@ for (i in colnames(deg_results)){
 }
 res <-  limma_de_list %>% 
     reduce(inner_join, by='id')
+names(res) <- colnames(deg_results)
 
-colnames(deg_results)
-res
+reps
 ```
 
 
 ```{r}
-rpe_spec_tss <- res %>% inner_join(gtf_tss %>% select(transcript_id, id),. )
-rpe_spec_tss_counts <- filter(quant_smoothed,transcript_id %in% rpe_spec_tss$id)
-rpe_spec_gtf <- rtracklayer::readGFF('data/gtfs/filtered_tissue/RPE_Fetal.Tissue.gtf')
-
-rpe_spec_tss_tx <- rpe_spec_tss %>% pull(id) %>% {filter(gtf_tss, id %in% .)} %>% pull(transcript_id) %>% {filter(tcons2mstrg, transcript_id %in% .)}
+starts_diffexp <- res %>% inner_join(gtf_tss,.)
+sum(starts_diffexp$novel_start)
 
 ```
 

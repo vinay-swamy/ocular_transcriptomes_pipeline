@@ -1,6 +1,7 @@
 library(tidyverse)
 
 #going to need location_files
+#args <- c('~/NIH/eyeintegration_splicing/', 'sampleTableV5.tsv', 'rmats_out/', 'ref/rmats_locs/', 'testing/smo.df', 'testing/dfdf.df' )
 args <- commandArgs(trailingOnly = T)
 wd=args[1]
 sample_table_file <- args[2]
@@ -10,7 +11,7 @@ all_tissue_psi_outfile <- args[5]
 all_tissue_incCounts_outfile <- args[6] 
 
 sample_table <- read_tsv(sample_table_file, col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
-subtissues <- unique(sample_table$subtissue)
+subtissues <- sample_table %>% filter(paired == 'y') %>% pull(subtissue) %>% unique()
 rm_locs <- paste0(rm_loc_dir, subtissues,'.rmats.txt' ) %>% .[!grepl('synth',.)]
 
 process_events_for_tissue <- function(loc){
@@ -23,6 +24,7 @@ process_events_for_tissue <- function(loc){
         "
     
     samples <- scan(loc, character(),  sep = ',') %>% str_split('/') %>% .[.!='']  %>% sapply(function(x) x[grep('.bam', x, fixed = T) -1]) 
+    print(samples)
     tissue <- str_split(loc, '/|\\.rmats')[[1]][3]
     event_files <- paste0(rmats_out_dir, tissue,'/', c('SE', 'A3SS', 'A5SS', 'MXE', 'RI'), '.MATS.JC.txt')
     

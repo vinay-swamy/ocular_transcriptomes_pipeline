@@ -1,0 +1,60 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup}
+knitr::opts_knit$set(root.dir='~/NIH/dev_eyeintegration_splicing/')
+```
+
+
+```{r}
+library(tidyverse)
+source('~/scripts/read_salmon.R')
+gencode_path <- 'testing/gencode_quant/'
+all_tissue_path <- 'testing/all_tissue_combineed_quant/'
+tissue_raw_path <- 'data/rawST_tx_quant_files/RPE_Fetal.Tissue/'
+tissue_filt_path <- 'data/filter_tx_quant_files/RPE_Fetal.Tissue/'
+gencode_counts <- read_salmon(gencode_path)
+alltissue_counts <- read_salmon(all_tissue_path)
+tissue_raw_counts <- read_salmon(tissue_raw_path)
+tissue_filtered_counts <- read_salmon(tissue_filt_path)
+tcons2MSTRG <- read_tsv('data/misc/gfc_TCONS_to_st_MSTRG.tsv') %>% select(transcript_id, RPE_Fetal.Tissue)
+load('/Volumes/data/dev_eyeintegration_splicing/testing/old_quant.rdata')
+old_gtf <- rtracklayer::readGFF('/Volumes/data/dev_eyeintegration_splicing/testing/old')
+
+```
+
+
+
+```{r}
+raw_f <- filter(tissue_raw_counts, transcript_id %in% tissue_filtered_counts$transcript_id) %>% arrange(transcript_id)
+filt_f <- tissue_filtered_counts %>% arrange(transcript_id)
+lapply(colnames(raw_f)[-1], function(i) cor(raw_f[,i], filt_f[,i]))
+
+
+```
+so the difference in quantification between the filtered and the raw is minimal
+
+
+
+```{r}
+dropped_transcripts <- filter(tissue_raw_counts, !transcript_id %in% tissue_filtered_counts$transcript_id)
+gencode_quant_dropped_tx <- filter(gencode_counts, transcript_id %in% dropped_transcripts$transcript_id) %>% 
+    mutate(total_exp= rowMeans(.[,-1])) %>% left_join(dropped_transcripts, by='transcript_id') %>%  arrange(desc(total_exp)) %>% 
+    select(transcript_id, total_exp, everything()) %>% 
+  left_join( alltissue_counts %>% select(-transcript_id) %>% select(transcript_id=RPE_Fetal.Tissue, everything()))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+

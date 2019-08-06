@@ -78,7 +78,7 @@ def build_to_fasta_file(build):
     if build == 'gencode':
         return('ref/gencode_tx_ref.fa')# hard coded for now, will need to add more later
 def build_tissue_lookup(tissue, build=''):
-    if tissue == 'all_tissues':
+    if tissue == 'all_tissues.combined':
         return 'data/gtfs/all_tissues.combined.gtf'
     else:
         if build == 'rawST_tx_quant_files':
@@ -124,9 +124,9 @@ win_size=config['window_size']
 
 rule all:
     input:'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', stringtie_full_gtf,\
-    'data/exp_files/all_tissues_complete_quant.rdata',\
+    'data/exp_files/all_tissues_complete_quant.rdata','data/seqs/best_orfs.transdecoder.pep'
     #stringtie_full_gtf,\
-    'data/seqs/best_orfs.transdecoder.pep'
+
 
      #expand('models/{sample}_xgb_trd.pck', sample=sample_names)
 '''
@@ -383,7 +383,7 @@ rule merge_filtered_salmon_quant:
         '''
 
 rule run_trans_decoder:
-    input:'data/seqs/combined_stringtie_tx.fa'
+    input:'data/seqs/all/all_tissues.combined_tx.fa'
     output:'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.gff3', \
     'data/seqs/transdecoder_results/combined_stringtie_tx.fa.transdecoder.pep'
     shell:

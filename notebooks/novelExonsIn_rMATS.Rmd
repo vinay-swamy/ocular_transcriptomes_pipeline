@@ -1,0 +1,202 @@
+---
+title: "detection of novel exons in rMATS"
+output: html_notebook
+---
+
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/dev_eyeintegration_splicing/')
+#knitr::opts_knit$set(root.dir = '/data/swamyvs/eyeintegration_splicing/')
+```
+
+```{r}
+library(tidyverse)
+load('rdata/novel_exon_classification.rdata')
+all_tissue_gtf <- rtracklayer::readGFF('data/gtfs/all_tissues.combined.gtf')
+```
+
+
+How many of the events I've called as originating from alternative splice sites.
+
+```{r}
+a3ss_files <- list.files('/Volumes/data/dev_eyeintegration_splicing/rmats_out/', pattern = 'fromGTF.A3SS.txt', recursive = T, full.names = T )
+a5ss_files <- list.files('/Volumes/data/dev_eyeintegration_splicing/rmats_out/', pattern = 'fromGTF.A5SS.txt', recursive = T, full.names = T )
+
+proc_as_file <- function(file){
+    a3ss <- suppressMessages(read_tsv(file)) %>%
+        rename(longStart=longExonStart_0base) %>% 
+        mutate(longStart=longStart+1, shortES=shortES+1)
+    a3_long <- a3ss %>% select(seqid=chr, strand, start=longStart, end=longExonEnd) %>% distinct
+    a3_short <- a3ss %>% select(seqid=chr, strand, start=shortES, end=shortEE) %>% distinct
+    return(bind_rows(a3_long, a3_short))
+}
+all_rmats_a3ss <- lapply(a3ss_files, proc_as_file) %>% bind_rows() %>% distinct %>% mutate(det.A3SS=T)
+all_rmats_a5ss <- lapply(a5ss_files, proc_as_file) %>% bind_rows() %>% distinct %>% mutate(det.A5SS=T)
+
+novel_exons_TSES %>% inner_join(all_rmats_a3ss) %>% pull(nv_type_rc) %>% table 
+novel_exons_TSES %>% inner_join(all_rmats_a5ss) %>% pull(nv_type_rc) %>% table 
+#filter(novel_exons_TSES) %>% inner_join(all_rmats_a5ss) %>% nrow# %>% print
+table(novel_exons_TSES$nv_type_rc)
+```
+
+Might as well check the SE and RI files too
+
+```{r}
+se_files <- list.files('/Volumes/data/dev_eyeintegration_splicing/rmats_out/', 'fromGTF.SE.txt', recursive = T, full.names = T)
+proc_se_file <- function(file){
+    a3ss <- suppressMessages(read_tsv(file))%>%
+        rename(start=exonStart_0base, end=exonEnd) %>% 
+        mutate(start=start+1, upstreamES=upstreamES+1, downstreamES=downstreamES+1)
+    skipped <- a3ss %>% select(seqid=chr, strand, start, end) %>% distinct
+    upstr <- a3ss %>% select(seqid=chr, strand, start=upstreamES, end=upstreamEE) %>% distinct
+    dwnstr <- a3ss %>% select(seqid=chr, strand, start=downstreamES, end=downstreamEE) %>% distinct
+    return(bind_rows(skipped, upstr, dwnstr) %>% distinct)
+}
+all_se <- lapply(se_files, proc_se_file) %>% bind_rows() %>% distinct %>% mutate(det.SE=T)
+novel_exons_TSES %>% inner_join(all_se) %>% pull(nv_type_rc) %>% table 
+```
+
+
+```{r}
+ri_files <- list.files('/Volumes/data/dev_eyeintegration_splicing/rmats_out/', 'fromGTF.RI.txt', recursive = T, full.names = T)
+
+
+proc_ri_file <- function(file){
+    a3ss <- suppressMessages(read_tsv(file)) %>%
+        rename(start=riExonStart_0base, end=riExonEnd) %>% 
+        mutate(start=start+1, upstreamES=upstreamES+1, downstreamES=downstreamES+1)
+    skipped <- a3ss %>% select(seqid=chr, strand, start, end) %>% distinct
+    upstr <- a3ss %>% select(seqid=chr, strand, start=upstreamES, end=upstreamEE) %>% distinct
+    dwnstr <- a3ss %>% select(seqid=chr, strand, start=downstreamES, end=downstreamEE) %>% distinct
+    return(bind_rows(skipped, upstr, dwnstr) %>% distinct)
+}
+all_ri <- lapply(ri_files, proc_ri_file) %>% bind_rows() %>% distinct() %>% mutate(det.RI=TRUE)
+
+novel_exons_TSES %>% inner_join(all_ri) %>% pull(nv_type_rc) %>% table
+
+```
+
+Now lets bring it all together
+
+```{r}
+
+novel_exons_detected <-  novel_exons_TSES %>% left_join(all_rmats_a3ss) %>% left_join(all_rmats_a5ss) %>% left_join(all_se) %>% left_join(all_ri) %>%
+    replace_na(list(det.SE=F, det.A3SS=F, det.A5SS=F, det.RI=F)) %>% 
+    mutate(not_det = ! select(., contains('det.')) %>% rowSums() %>% as.logical())
+
+#nubmer of exons not detected
+novel_exons_detected %>% filter(not_det) %>% pull(nv_type_rc) %>% table %>% {sum(.) / nrow(novel_exons_detected) }
+#number of exons not detected that are *theoraetically* involved in splicing and not TSS/TES
+novel_exons_detected %>% filter(! nv_type_rc %in%c('novel_TES', 'novel_TSS'), not_det)  %>% pull(nv_type_rc) %>% table %>% {sum(.) / nrow(novel_exons_detected) }
+novel_exons_detected %>% filter(! nv_type_rc %in%c('novel_TES', 'novel_TSS'), !not_det) %>% pull(nv_type_rc) %>% table 
+
+k <- bind_rows(all_rmats_a3ss, all_rmats_a5ss, all_se, all_ri) %>% select(seqid, strand, start, end) %>% distinct 
+
+```
+
+
+```{r}
+load('/Volumes/data/dev_eyeintegration_splicing/data/exp_files/all_tissues_complete_quant.rdata')
+gtf <- rtracklayer::readGFF('data/gtfs/all_tissues.combined.gtf')
+sample_table <- read_tsv('sampleTableDev.tsv', col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
+eye_samples <- filter(sample_table, subtissue %in%c('Retina_Fetal.Tissue', 'RPE_Fetal.Tissue', 'Retina_Adult.Tissue')) %>% pull(sample)
+quant_eye <- complete_quant[, c('transcript_id', eye_samples)] %>% 
+    filter(apply(.[,-1],1, function(x) sum(is.na(x))) != (ncol(.) -1))
+tx_in_eye <- filter(gtf, transcript_id %in% quant_eye$transcript_id, type == 'exon') %>% select(seqid, strand, start, end) %>%
+    distinct()
+
+novel_exons_detected_eye <- inner_join(tx_in_eye, novel_exons_detected)
+
+
+
+end_count_1 <- inner_join(tx_in_eye, uniq_start_multi_gene) %>% select(seqid, strand, end) %>% group_by(seqid, strand, end) %>% summarise(count=n()) %>% 
+    filter(count == 1)
+
+num_alt_fs <- inner_join(tx_in_eye, uniq_start_multi_gene) %>% filter(novel_start) %>% inner_join(end_count_1) %>% nrow()
+num_tandem_fs <- filter(df, `Exon Class` == 'novel_TSS') %>% nrow() %>% {. - num_alt_fs }
+
+start_count_1 <- inner_join(tx_in_eye,uniq_ends_multi_gene) %>% select(seqid, strand, start) %>% group_by(seqid, strand, start) %>% 
+    summarise(count=n()) %>% filter(count == 1)
+num_alt_le <-inner_join(tx_in_eye,uniq_ends_multi_gene)  %>% filter(novel_end) %>% inner_join(start_count_1) %>% nrow 
+num_tandem_le <- filter(df, `Exon Class` == 'novel_TES') %>% nrow() %>% {. - num_alt_le }
+novel_alt_ts <- tibble(location=c('novel_start','novel_start', 'novel_end', 'novel_end'),
+       type=c('distinct', 'tandem', 'distinct', 'tandem'),
+       count=c(num_alt_fs, num_tandem_fs, num_alt_le, num_tandem_le),
+       origin='novel')
+
+end_count_1 <- inner_join(tx_in_eye, uniq_start_multi_gene) %>% select(seqid, strand, end) %>% group_by(seqid, strand, end) %>% summarise(count=n()) %>% 
+    filter(count == 1)
+
+num_alt_fs <- inner_join(tx_in_eye, uniq_start_multi_gene) %>% filter(!novel_start) %>% inner_join(end_count_1) %>% nrow()
+num_tandem_fs <- inner_join(tx_in_eye, uniq_start_multi_gene) %>% filter(!novel_start)  %>% nrow() %>% {. - num_alt_fs }
+
+start_count_1 <- inner_join(tx_in_eye,uniq_ends_multi_gene) %>% select(seqid, strand, start) %>% group_by(seqid, strand, start) %>% 
+    summarise(count=n()) %>% filter(count == 1)
+num_alt_le <-inner_join(tx_in_eye,uniq_ends_multi_gene)  %>% filter(!novel_end) %>% inner_join(start_count_1) %>% nrow 
+num_tandem_le <- inner_join(tx_in_eye,uniq_ends_multi_gene)  %>% filter(!novel_end) %>%  nrow() %>% {. - num_alt_le }
+ref_alt_ts <- tibble(location=c('ref_start','ref_start', 'ref_end', 'ref_end'),
+       type=c('distinct', 'tandem', 'distinct', 'tandem'),
+       count=c(num_alt_fs, num_tandem_fs, num_alt_le, num_tandem_le),
+       origin='ref')
+all_alt_ts <- bind_rows(ref_alt_ts, novel_alt_ts)
+
+
+ggplot(data=all_alt_ts, aes(fill=location, alpha=type, y=count, x=location))+
+    scale_alpha_discrete(range=c(.4,1)) +
+    geom_bar(position = 'dodge', stat = 'identity')+
+    ggtitle('Alternative Transcriptional Start and End Sites in the Occular Transcriptome')+
+    theme_minimal()
+
+```
+
+
+```{r}
+df <- novel_exons_detected_eye %>% filter(!not_det| nv_type_rc %in%c('novel_TES', 'novel_TSS')) %>% 
+    mutate(nv_type_rc= replace(nv_type_rc, nv_type_rc == 'novel_exon', 'novel skipped\n exon'), 
+           nv_type_rc=replace(nv_type_rc, !(!not_det| nv_type_rc %in%c('novel_TES', 'novel_TSS')), 'Not Detected')) %>% 
+    dplyr::rename(`Exon Class`=nv_type_rc)
+df2 <- tibble(class=names(table(df$`Exon Class`)), count=table(df$`Exon Class`)) %>% 
+    bind_rows(novel_alt_ts %>% unite(class, location, type) %>% select(-origin))
+
+ggplot(data=df2, aes(fill=class, y=count, x=class))+
+    geom_bar(position = 'dodge', stat = 'identity')+
+    ggtitle('classification of novel exons detected in denovo occular transcriptome')+
+    xlab('Novel Exon Class')+
+   theme(axis.text.x = element_text(angle = 40, hjust = 1))
+
+
+
+ggplot(data=df, aes(`Exon Class`, fill=`Exon Class`)) + 
+    geom_bar() + 
+    ggtitle('classification of novel exons detected in denovo occular transcriptome')+
+    scale_x_discrete(limits= c("novel_TSS", "novel_TES", 'novel skipped\n exon', 'A3SS', 'A5SS', 'RI'))+
+    xlab()
+    theme_minimal()
+
+
+sum(m)
+7564 +7485
+
+```
+
+
+
+
+```{r}
+k <- scan('/Volumes/data/V1_eyesplice/ref/retnet_hgncIDs_2017-03-28.txt', character())
+inner_join(tx_in_eye, uniq_start_multi_gene) %>% filter(gene_name %in% k)
+```
+```{r}
+filter(gtf, gene_name =='MFN2', type == 'exon') %>% select(seqid, strand, start, end, transcript_id, exon_number ) %>% 
+    left_join(group_by(., transcript_id) %>% summarise(exon_number=last(exon_number)) %>% mutate(is.le=T) ) %>%
+    mutate(is.le=replace_na(is.le, F), type=case_when(exon_number == 1 ~ 'First Exon', is.le ~ 'Last Exon', TRUE ~ 'Middle Exon')) %>% 
+    left_join(tibble(transcript_id=unique(.$transcript_id)) %>% mutate(Y=seq(1,length(transcript_id))))
+
+ggplot()+
+    geom_rect()
+
+```
+
+
+

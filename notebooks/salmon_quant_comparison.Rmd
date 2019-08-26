@@ -5,8 +5,29 @@ output: html_notebook
 
 
 ```{r setup}
-knitr::opts_knit$set(root.dir = '~/NIH/eyeintegration_splicing/')
+knitr::opts_knit$set(root.dir = '~/NIH/dev_eyeintegration_splicing/')
 #knitr::opts_knit$set(root.dir = '/data/swamyvs/eyeintegration_splicing/')
+```
+
+
+
+
+
+```{r}
+library(tidyverse)
+library(glue)
+sample_table <- read_tsv('sampleTableDev.tsv', col_names =c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
+subtissue <- sample_table$subtissue %>% unique()
+proc_gtf <- function(tissue, build){
+    gtf <- rtracklayer::readGFF(glue('data/gtfs/{build}/{tissue}_st.gtf'))
+    num_ref <- gtf %>% filter(type =='transcript', grepl('ENST', transcript_id)) %>% nrow
+    num_novel <- gtf %>% filter(type =='transcript', !grepl('ENST', transcript_id)) %>% nrow 
+    if build == '
+    return(tibble(tissue=tissue,))
+}
+
+
+
 ```
 
 
@@ -61,6 +82,11 @@ hm <- Heatmap(mat[1:5000,],cluster_columns = F, cluster_rows = F, column_names_s
 draw(hm)
 
 ```
+
+
+
+
+
 
 
 

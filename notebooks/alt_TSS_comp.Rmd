@@ -45,7 +45,9 @@ gtf_tss <- gtf_tss %>% filter(exon_number == 1) %>% inner_join(complete_quant)
 total_tss_quant <-  gtf_tss[,-(1:8)] %>% group_by(id) %>% summarise_all(sum)
 subtissue_fac <- as.factor(sample_table$subtissue)
 quant_smoothed <- total_tss_quant[,sample_table$sample] %>% as.data.frame %>% 
-    qsmooth(object = ., groupFactor = subtissue_fac) %>% qsmoothData %>% as.data.frame
+
+qsmooth(object = ., group_factor = subtissue_fac) %>% qsmoothData %>% as.data.frame
+
 rownames(quant_smoothed) <- total_tss_quant$id
 
 design_st <- model.matrix(~ 0 + subtissue_fac)
@@ -66,33 +68,79 @@ design_target_pairs <-function(levels, target) {
     }
     design
   }
-cont.mat <- design_target_pairs(levels(subtissue_fac), 'RPE_Fetal_Tissue')
-cmat_cols <- colnames(cont.mat)
-deg_lm_fit <- lmFit(voom_deg, design = design_st)
-colnames(deg_lm_fit)
-cont.mat <- cont.mat[colnames(deg_lm_fit),]
 
-all_contasts <- contrasts.fit(fit = deg_lm_fit, contrasts = cont.mat)
-deg_results <- eBayes(all_contasts)
-limma_de_list = list()
-for (i in colnames(deg_results)){
-    lfc <- paste('LFC', i, sep = '-')
-    qval <- paste('qval', i, sep = '-')
-    limma_de_list[[i]] <- topTable(deg_results, coef=i, adjust.method = 'fdr', number=300000) %>% 
-      mutate(id=rownames(.)) %>% select(id, everything()) %>% filter(adj.P.Val <.05, logFC > 2) %>% 
-      select(id, !!lfc :=logFC, !!qval:= adj.P.Val)
+deg_tissue_specifc <- function(tissue){
+  cont.mat <- design_target_pairs(levels(subtissue_fac), tissue)
+  cmat_cols <- colnames(cont.mat)
+  deg_lm_fit <- lmFit(voom_deg, design = design_st)
+  colnames(deg_lm_fit)
+  cont.mat <- cont.mat[colnames(deg_lm_fit),]
+  
+  all_contasts <- contrasts.fit(fit = deg_lm_fit, contrasts = cont.mat)
+  deg_results <- eBayes(all_contasts)
+  limma_de_list = list()
+  for (i in colnames(deg_results)){
+      lfc <- paste('LFC', i, sep = '-')
+      qval <- paste('qval', i, sep = '-')
+      limma_de_list[[i]] <- topTable(deg_results, coef=i, adjust.method = 'fdr', number=300000) %>% 
+        mutate(id=rownames(.)) %>% select(id, everything()) %>% filter(adj.P.Val <.05, logFC > 2) %>% 
+        select(id, !!lfc :=logFC, !!qval:= adj.P.Val)
+  }
+  res <-  limma_de_list %>% 
+      reduce(inner_join, by='id')
+  return(tibble(tissue=tissue, id=res$id))
 }
-res <-  limma_de_list %>% 
-    reduce(inner_join, by='id')
-names(res) <- colnames(deg_results)
+eye_tss <- bind_rows(
+ deg_tissue_specifc('RPE_Fetal_Tissue'),
+ deg_tissue_specifc('Retina_Fetal_Tissue'),
+deg_tissue_specifc('Retina_Adult_Tissue')
+)
+eye_Tss_ano <- uniq_start_multi_gene %>% select(id, gene_name, novel_start) %>% inner_join(eye_tss) %>% 
+  mutate(novel_start=ifelse(novel_start, 'novel', 'reference'))
 
-res
+
+
 ```
 
 
 ```{r}
-starts_diffexp <- res %>% inner_join(gtf_tss,.)
-sum(starts_diffexp$novel_start)
+
+specie=c(rep("sorgho" , 3) , rep("poacee" , 3) , rep("banana" , 3) , rep("triticum" , 3) )
+condition=rep(c("normal" , "stress" , "Nitrogen") , 4)
+value=abs(rnorm(12 , 0 , 15))
+data=data.frame(specie,condition,value)
+df <- eye_Tss_ano %>% group_by(tissue, novel_start) %>% summarise(count=n())
+ggplot(df, aes(fill=tissue, alpha=novel_start, y=count, x=tissue)) + 
+  scale_alpha_discrete(range = c(.5,1))+
+  ggtitle('Tissue Specifc First Exons')+
+  geom_bar(position="dodge", stat="identity")
+
+```
+
+
+
+```{r}
+library(ComplexHeatmap)
+library(viridisLite)
+#eye_tss_tx_quant <- filter(gtf_tss, id %in% eye_Tss_ano$id) %>% pull(transcript_id) %>% {filter(complete_quant, transcript_id %in% .)}
+eye_tss_tx_quant <- gtf_tss %>% pull(transcript_id) %>% {filter(complete_quant, transcript_id %in% .)}
+eye_quant_only <-  filter(sample_table, subtissue %in% c('RPE_Fetal_Tissue', 'Retina_Fetal_Tissue', 'Retina_Adult_Tissue')) %>% pull(sample) %>% {eye_tss_tx_quant[,c('transcript_id', .)]}
+
+
+
+mat <- log2(eye_quant_only[,-1] +1)
+mat[mat >= 5] <- 5 
+anno <- filter(sample_table, subtissue %in% c('RPE_Fetal_Tissue', 'Retina_Fetal_Tissue', 'Retina_Adult_Tissue'))
+colors <- list("subtissue"= c("RPE_Fetal.Tissue"='blue', "Retina_Fetal.Tissue"='red', "Retina_Adult.Tissue"='green'))
+mat <- mat[,anno$sample]
+tissue=anno$subtissue
+ha <- HeatmapAnnotation(tissue=tissue, which = 'row')
+Heatmap(mat %>% sample_n(2000) %>% t, col = viridis(100), name = 'log2(TPM+1)', left_annotation = ha
+        )
+
+
+
+
 
 ```
 

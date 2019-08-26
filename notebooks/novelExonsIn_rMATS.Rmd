@@ -156,10 +156,22 @@ df <- novel_exons_detected_eye %>% filter(!not_det| nv_type_rc %in%c('novel_TES'
     mutate(nv_type_rc= replace(nv_type_rc, nv_type_rc == 'novel_exon', 'novel skipped\n exon'), 
            nv_type_rc=replace(nv_type_rc, !(!not_det| nv_type_rc %in%c('novel_TES', 'novel_TSS')), 'Not Detected')) %>% 
     dplyr::rename(`Exon Class`=nv_type_rc)
+df2 <- tibble(class=names(table(df$`Exon Class`)), count=table(df$`Exon Class`)) %>% 
+    bind_rows(novel_alt_ts %>% unite(class, location, type) %>% select(-origin))
+
+ggplot(data=df2, aes(fill=class, y=count, x=class))+
+    geom_bar(position = 'dodge', stat = 'identity')+
+    ggtitle('classification of novel exons detected in denovo occular transcriptome')+
+    xlab('Novel Exon Class')+
+   theme(axis.text.x = element_text(angle = 40, hjust = 1))
+
+
+
 ggplot(data=df, aes(`Exon Class`, fill=`Exon Class`)) + 
     geom_bar() + 
     ggtitle('classification of novel exons detected in denovo occular transcriptome')+
     scale_x_discrete(limits= c("novel_TSS", "novel_TES", 'novel skipped\n exon', 'A3SS', 'A5SS', 'RI'))+
+    xlab()
     theme_minimal()
 
 

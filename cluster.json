@@ -46,7 +46,7 @@
 		"mem" : "48g",
 		"time" : "10:00:00"
 	},
-	"aggregate_salmon_counts" :
+	"aggregate_salmon_counts_and_filter_gtf" :
 	{
 		"mem" : "48g"
 	},
@@ -78,12 +78,11 @@
                 "extra" : ""
 
 	},
-        "run_salmon_all":
+        "merge_filtered_salmon_quant":
         {
                 "partition" : "norm",
-                "cpus-per-task" : "8",
                 "time" : "6:00:00",
-                "mem" : "32g",
+                "mem" : "48g",
                 "output"  : "00log/{rule}_{wildcards}.out",
                 "error" : "00log/{rule}_{wildcards}.err",
                 "extra" : ""

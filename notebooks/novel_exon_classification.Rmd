@@ -4,15 +4,15 @@ output: html_notebook
 ---
 
 ```{r setup}
-knitr::opts_knit$set(root.dir = '~/NIH/eyeintegration_splicing/')
+knitr::opts_knit$set(root.dir = '~/NIH/dev_eyeintegration_splicing/')
 #knitr::opts_knit$set(root.dir = '/data/swamyvs/eyeintegration_splicing/')
 ```
 
 
 ```{r}
 library(tidyverse)
-args <- c('~/NIH/eyeintegration_splicing/',
-          'data_2/gtfs/all_tissues.combined.gtf',
+args <- c('~/NIH/dev_eyeintegration_splicing/',
+          '../eyeintegration_splicing/all_tissues.combined.gtf',
           'ref/gencode_comp_ano.gtf',
           'sampleTableDev.tsv')
 

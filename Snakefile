@@ -124,7 +124,7 @@ win_size=config['window_size']
 
 rule all:
     input:'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', stringtie_full_gtf,\
-    'data/exp_files/all_tissues_complete_quant.rdata','data/seqs/best_orfs.transdecoder.pep'
+    'data/exp_files/all_tissues_complete_quant.rdata','data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
     #stringtie_full_gtf,\
 
 
@@ -384,22 +384,27 @@ rule merge_filtered_salmon_quant:
 
 rule run_trans_decoder:
     input:'data/seqs/all/all_tissues.combined_tx.fa'
-    output:'data/seqs/transdecoder_results/all_tissues.combined_tx.fa.transdecoder.gff3', \
-    'data/seqs/transdecoder_results/all_tissues.combined_tx.fa.transdecoder.pep'
+    output:'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3', \
+    'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
     shell:
         '''
-        mkdir -p transdecoder
-        cd transdecoder
+        cd TransDecoder
         module load {TransDecoder_version}
-        TransDecoder.LongOrfs -t ../{input}
-        TransDecoder.Predict --single_best_only -t ../{input}
         mkdir -p ../data/seqs/transdecoder_results/
-        mv all_tissues.combined_tx.fa.transdecoder.*  ../data/seqs/transdecoder_results/
+        ./util/gtf_genome_to_cdna_fasta.pl ../data/gtfs/all_tissues.combined.gtf ../ref/gencode_genome.fa > transcripts.fasta
+        ./util/gtf_to_alignment_gff3.pl ../data/gtfs/all_tissues.combined.gtf > transcripts.gff3
+        TransDecoder.LongOrfs -t transcripts.fasta
+        TransDecoder.Predict --single_best_only -t transcripts.fasta
+        ./util/cdna_alignment_orf_to_genome_orf.pl \
+            transcripts.fasta.transdecoder.gff3 \
+            transcripts.gff3 \
+            transcripts.fasta > ../data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3
+        mv transcripts.fasta.transdecoder.*  ../data/seqs/transdecoder_results/
         '''
 #
 rule clean_pep:
-    input:'data/seqs/transdecoder_results/all_tissues.combined_tx.fa.transdecoder.pep'
-    output:pep='data/seqs/best_orfs.transdecoder.pep', meta_info='data/seqs/pep_fasta_meta_info.tsv'#, len_cor_tab='data/seqs/len_cor_tab.tsv'
+    input:'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
+    output:pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep', meta_info='data/seqs/transdecoder_results/pep_fasta_meta_info.tsv'#, len_cor_tab='data/seqs/len_cor_tab.tsv'
     shell:
         '''
         python3 scripts/clean_pep.py {input} {output.pep} {output.meta_info}

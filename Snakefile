@@ -10,7 +10,7 @@ notes:
 
 06/10/19 changes
 - I added way to much downstream stuff to the pipeline, assuming that the splicing/trnascriptome stuff was more accurate
-  than it actually was, so I removed a lot stuff,  hmmer, vonverting to b37, getting a gff3, to focus more on improving
+  than it actually was, so I removed a lot stuff,  hmmer, converting to b37, getting a gff3, to focus more on improving
   the accuracy of the exon detections
 - using the comprehensive gencode annotation for everything
 - no longer realigning to stringtie gtf, this caused a lot of problems, an it makes a little more sense over all now,
@@ -124,11 +124,9 @@ win_size=config['window_size']
 
 rule all:
     input:'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', stringtie_full_gtf,\
-    'data/exp_files/all_tissues_complete_quant.rdata','data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
-    #stringtie_full_gtf,\
+    'data/exp_files/all_tissues_complete_quant.rdata','data/seqs/transdecoder_results/best_orfs.transdecoder.pep',\
+    'rdata/novel_exon_classification.rdata'
 
-
-     #expand('models/{sample}_xgb_trd.pck', sample=sample_names)
 '''
 ****PART 1**** download files and align to genome
 -still need to add missing fastq files
@@ -410,6 +408,15 @@ rule clean_pep:
         python3 scripts/clean_pep.py {input} {output.pep} {output.meta_info}
         '''
                 #python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
+rule catagorize_novel_exons:
+    input: stringtie_full_gtf
+    output: 'rdata/novel_exon_classification.rdata'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/classify_novel_exons.R {working_dir} {stringtie_full_gtf} {sample_file} {output}
+        '''
+
 
 #q
 # '''

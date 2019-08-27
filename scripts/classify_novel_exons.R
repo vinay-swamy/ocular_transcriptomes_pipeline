@@ -1,17 +1,18 @@
 library(tidyverse)
-args <- c('~/NIH/dev_eyeintegration_splicing/',
-          'data/gtfs/all_tissues.combined.gtf',
-          'ref/gencode_comp_ano.gtf',
-          'sampleTableDev.tsv')
+# args <- c('~/NIH/dev_eyeintegration_splicing/',
+#           'data/gtfs/all_tissues.combined.gtf',
+#           'sampleTableDev.tsv',
+#           )
 
-#args <- commandArgs(trailingOnly = T)
+args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
-ref_gtf <- args[3]
-sample_table_file <- args[4]
+sample_table_file <- args[3]
+outfile <- args[4]
 setwd(working_dir)
-base_ref <- rtracklayer::readGFF('ref/gencode_comp_ano.gtf') %>% mutate(origin='gencode', seqid=as.character(seqid))
+
 if(!file.exists('rdata/all_ref_tx_exons.rdata')){
+  base_ref <- rtracklayer::readGFF('ref/gencode_comp_ano.gtf') %>% mutate(origin='gencode', seqid=as.character(seqid))
   ensembl_ref <- rtracklayer::readGFF('ref/ensembl_ano.gtf') %>% mutate(seqid=as.character(seqid), origin='ensembl')
   chr <-  paste0('chr', ensembl_ref$seqid %>% as.character)
   non_chr <-  ensembl_ref$seqid %>% as.character %>% as.numeric %>% is.na
@@ -58,7 +59,7 @@ novel_transcripts <- filter(novel_transcripts, !transcript_id %in% novel_single_
 novel_exons <- gfc_gtf %>% 
   filter(type == 'exon', !transcript_id %in% novel_loci$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id ) %>%
   select(seqid, strand, start, end) %>% 
-  anti_join( all_exons) %>%
+  anti_join( all_exons) %>% distinct %>% 
   mutate(id=paste0('nvl_exon', 1:nrow(.)))
 
 nvl_start <- anti_join(novel_exons %>% select(seqid, strand, start, id), all_exons) %>% { novel_exons$id  %in% .$id}
@@ -119,15 +120,11 @@ uniq_ends_multi_gene <- novel_exons %>% mutate(novel_end=nvl_end) %>% select(seq
 novel_exons_TSES <- novel_exons %>% left_join( uniq_start_multi_gene %>% select(seqid, strand, start, novel_start) %>% distinct) %>% 
   left_join(uniq_ends_multi_gene %>% select(seqid, strand, end, novel_end)) %>% rename(novelTSS=novel_start, novelTES=novel_end)
 novel_exons_TSES[is.na(novel_exons_TSES)] <- F
-both <-  novel_exons_TSES %>% filter(novelTSS, novelTES) %>% select(seqid, strand, start, end) %>% inner_join(gfc_gtf, .) %>%
-  pull(transcript_id) %>% {filter(gfc_gtf_full, transcript_id %in% .)}
-both %>% group_by(transcript_id) %>% summarise(count=n()) %>% filter(count>2) %>% pull(transcript_id) %>% 
-  {filter(gfc_gtf, transcript_id %in% .)} %>% inner_join(novel_exons_TSES %>% select(seqid, strand, start, end ))
 
 novel_exons_TSES <- novel_exons_TSES %>% mutate(nv_type_rc = case_when(novelTSS ~ 'novel_TSS',
                                                                        novelTES ~ 'novel_TES',
                                                                        TRUE ~ nv_type))
-save(uniq_start_multi_gene,all_exons, all_transcripts, novel_exons_TSES,  uniq_ends_multi_gene, file = 'rdata/novel_exon_classification.rdata')
+save(uniq_start_multi_gene,all_exons, all_transcripts, novel_exons_TSES,  uniq_ends_multi_gene, file = outfile)
 
 
 

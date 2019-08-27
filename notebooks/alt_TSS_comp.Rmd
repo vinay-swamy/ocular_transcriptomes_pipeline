@@ -45,7 +45,9 @@ gtf_tss <- gtf_tss %>% filter(exon_number == 1) %>% inner_join(complete_quant)
 total_tss_quant <-  gtf_tss[,-(1:8)] %>% group_by(id) %>% summarise_all(sum)
 subtissue_fac <- as.factor(sample_table$subtissue)
 quant_smoothed <- total_tss_quant[,sample_table$sample] %>% as.data.frame %>% 
-    qsmooth(object = ., group_factor = subtissue_fac) %>% qsmoothData %>% as.data.frame
+
+qsmooth(object = ., group_factor = subtissue_fac) %>% qsmoothData %>% as.data.frame
+
 rownames(quant_smoothed) <- total_tss_quant$id
 
 design_st <- model.matrix(~ 0 + subtissue_fac)
@@ -97,10 +99,12 @@ eye_Tss_ano <- uniq_start_multi_gene %>% select(id, gene_name, novel_start) %>% 
   mutate(novel_start=ifelse(novel_start, 'novel', 'reference'))
 
 
+
 ```
 
 
 ```{r}
+
 specie=c(rep("sorgho" , 3) , rep("poacee" , 3) , rep("banana" , 3) , rep("triticum" , 3) )
 condition=rep(c("normal" , "stress" , "Nitrogen") , 4)
 value=abs(rnorm(12 , 0 , 15))
@@ -133,6 +137,7 @@ tissue=anno$subtissue
 ha <- HeatmapAnnotation(tissue=tissue, which = 'row')
 Heatmap(mat %>% sample_n(2000) %>% t, col = viridis(100), name = 'log2(TPM+1)', left_annotation = ha
         )
+
 
 
 

@@ -386,6 +386,8 @@ rule run_trans_decoder:
     'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
     shell:
         '''
+        rm -rf TransDecoder
+        git clone https://github.com/TransDecoder/TransDecoder.git
         cd TransDecoder
         module load {TransDecoder_version}
         mkdir -p ../data/seqs/transdecoder_results/

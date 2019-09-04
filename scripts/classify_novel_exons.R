@@ -2,6 +2,7 @@ library(tidyverse)
 # args <- c('~/NIH/dev_eyeintegration_splicing/',
 #           'data/gtfs/all_tissues.combined.gtf',
 #           'sampleTableDev.tsv',
+#           'testing/out.rdata'
 #           )
 
 args <- commandArgs(trailingOnly = T)
@@ -54,6 +55,17 @@ novel_single_exon_tx <- novel_transcripts$transcript_id %>% {filter(gfc_gtf, tra
   summarise(count=n()) %>% filter(count == 2) %>% pull(transcript_id) %>%  {filter(novel_transcripts, transcript_id %in% .)}
 novel_transcripts <- filter(novel_transcripts, !transcript_id %in% novel_single_exon_tx$transcript_id)
 
+# remove novel loci that overlap with known genes
+novel_loci %>% filter(type == 'transcript') %>%  mutate(score=999) %>% 
+  select(seqid, start, end, transcript_id, score, strand) %>% write_tsv('/tmp/novel_loci.bed', col_names = F)
+
+all_transcripts %>% mutate(score=999) %>% select(seqid, start, end, origin, score, strand) %>% 
+  write_tsv('/tmp/known_transcripts.bed', col_names = F)
+
+system2('bedtools', args = 'intersect -loj -s -a /tmp/novel_loci.bed -b /tmp/known_transcripts.bed > /tmp/intersect.bed')
+intersect <- read_tsv('/tmp/intersect.bed', col_names = F)
+
+novel_loci_distinct <- filter(intersect, X8 == -1) %>% pull(X4) %>% {filter(novel_loci, transcript_id %in% .)} 
 
 
 novel_exons <- gfc_gtf %>% 
@@ -124,7 +136,8 @@ novel_exons_TSES[is.na(novel_exons_TSES)] <- F
 novel_exons_TSES <- novel_exons_TSES %>% mutate(nv_type_rc = case_when(novelTSS ~ 'novel_TSS',
                                                                        novelTES ~ 'novel_TES',
                                                                        TRUE ~ nv_type))
-save(uniq_start_multi_gene,all_exons, all_transcripts, novel_exons_TSES,  uniq_ends_multi_gene, file = outfile)
+save(uniq_start_multi_gene,all_exons, all_transcripts, novel_exons_TSES,  
+     uniq_ends_multi_gene, novel_loci_distinct, file = outfile)
 
 
 

@@ -48,7 +48,6 @@ Skin-SunExposed-Lowerleg-
 SmallIntestine-TerminalIleum
 Spleen
 Stomach
-subtissue
 synth
 Thyroid
 WholeBlood

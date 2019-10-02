@@ -46,6 +46,12 @@
 		"mem" : "48g",
 		"time" : "10:00:00"
 	},
+        "optimize_gtf_building":
+        {
+                "mem" : "48g",
+                "time" : "10:00:00"
+        },
+
 	"aggregate_salmon_counts_and_filter_gtf" :
 	{
 		"mem" : "48g"

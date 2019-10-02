@@ -1,10 +1,11 @@
 library(tidyverse)
+library(RBedtools)
 # args <- c('~/NIH/dev_eyeintegration_splicing/',
 #           'data/gtfs/all_tissues.combined.gtf',
 #           'sampleTableDev.tsv',
 #           'testing/out.rdata'
 #           )
-
+#args <- c('../dev_eyeintegration_splicing/', '~/NIH/occular_transcriptomes_paper/all_tissues.combined.gtf', '/Volumes/data/eyeintegration_splicing/sampleTableV6.tsv', '~/NIH/occular_transcriptomes_paper/data/all_tissues.combined_V1.Rdata')
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
@@ -56,14 +57,16 @@ novel_single_exon_tx <- novel_transcripts$transcript_id %>% {filter(gfc_gtf, tra
 novel_transcripts <- filter(novel_transcripts, !transcript_id %in% novel_single_exon_tx$transcript_id)
 
 # remove novel loci that overlap with known genes
-novel_loci %>% filter(type == 'transcript') %>%  mutate(score=999) %>% 
-  select(seqid, start, end, transcript_id, score, strand) %>% write_tsv('/tmp/novel_loci.bed', col_names = F)
+novel_loci_bed <- novel_loci %>% filter(type == 'transcript') %>%  mutate(score=999) %>% 
+  select(seqid, start, end, transcript_id, score, strand) %>% from_data_frame %>% RBedtools('sort',i=.)
 
-all_transcripts %>% mutate(score=999) %>% select(seqid, start, end, origin, score, strand) %>% 
-  write_tsv('/tmp/known_transcripts.bed', col_names = F)
+intersect <- all_transcripts %>% mutate(score=999) %>% select(seqid, start, end, origin, score, strand) %>% 
+  from_data_frame %>% 
+  RBedtools('sort', output = 'stdout', i=.) %>% 
+  RBedtools('intersect',options = '-loj -s',a=novel_loci_bed, b=.  ) %>% 
+  to_data_frame
 
-system2('bedtools', args = 'intersect -loj -s -a /tmp/novel_loci.bed -b /tmp/known_transcripts.bed > /tmp/intersect.bed')
-intersect <- read_tsv('/tmp/intersect.bed', col_names = F)
+
 
 novel_loci_distinct <- filter(intersect, X8 == -1) %>% pull(X4) %>% {filter(novel_loci, transcript_id %in% .)} 
 
@@ -137,7 +140,7 @@ novel_exons_TSES <- novel_exons_TSES %>% mutate(nv_type_rc = case_when(novelTSS 
                                                                        novelTES ~ 'novel_TES',
                                                                        TRUE ~ nv_type))
 save(uniq_start_multi_gene,all_exons, all_transcripts, novel_exons_TSES,  
-     uniq_ends_multi_gene, novel_loci_distinct, file = outfile)
+     uniq_ends_multi_gene, novel_loci_distinct, novel_transcripts, file = outfile)
 
 
 

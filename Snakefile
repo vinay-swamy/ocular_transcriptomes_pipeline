@@ -56,6 +56,12 @@ def subtissue_to_gtf(subtissue, sample_dict):
     return (res)
 def subtissue_to_sample_agg(subtissue, sample_dict):
     res=[]
+    if subtissue == 'gencode':
+        for sample in sample_dict.keys():
+            if sample_dict[sample]['subtissue'] == 'RPE_Fetal.Tissue':
+                res.append('data/rawST_tx_quant_files/{}/{}/quant.sf'.format(subtissue, sample))
+        return(res)
+
     for sample in sample_dict.keys():
         if sample_dict[sample]['subtissue'] == subtissue:
             res.append('data/rawST_tx_quant_files/{}/{}/quant.sf'.format(subtissue, sample))
@@ -75,17 +81,32 @@ def salmon_input(id,sample_dict,fql):
         return('-1 {s}_1.fastq.gz -2 {s}_2.fastq.gz'.format(s=id))
     else:
         return('-r {}.fastq.gz'.format(id))
-def build_to_fasta_file(build):
-    if build == 'gencode':
-        return('ref/gencode_tx_ref.fa')# hard coded for now, will need to add more later
+
 def build_subtissue_lookup(subtissue, build=''):
     if subtissue == 'all_tissues.combined':
         return 'data/gtfs/all_tissues.combined.gtf'
+    elif subtissue == 'gencode':
+
+        return 'ref/gencode_comp_ano.gtf'
     else:
         if build == 'rawST_tx_quant_files':
             return 'data/gtfs/raw_tissue_gtfs/{}_st.gtf'.format(subtissue)
         else :
             return 'data/gtfs/filtered_tissue/{}.gtf'.format(subtissue)
+def merge_cutoff(subtissue, sample_dict):
+    count=0
+    #if subtissue == 'Retina_Adult.Tissue': #see notebook on strintie cutoff for
+    #    subtissue ='Retina_Fetal.Tissue'
+    for sample in sample_dict.keys():
+        if sample_dict[sample]['subtissue'] == subtissue:
+            count+=1
+    if subtissue == 'Retina_Adult.Tissue':
+        return(count/4)
+    else:
+        return(count/2)
+
+
+
 
 
 
@@ -124,9 +145,10 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input:'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', stringtie_full_gtf,\
-    'data/exp_files/all_tissues_complete_quant.rdata','data/seqs/transdecoder_results/best_orfs.transdecoder.pep',\
-    'rdata/novel_exon_classification.rdata'
+    input:expand('data/exp_files/{subtissue}_tx_quant.tsv.gz', subtissue=subtissues)
+    # input:'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', stringtie_full_gtf,\
+    # 'data/exp_files/all_tissues_complete_quant.rdata','data/seqs/transdecoder_results/best_orfs.transdecoder.pep',\
+    # 'rdata/novel_exon_classification.rdata', 'data/exp_files/gencode_tx_quant.tsv.gz'
 
 '''
 ****PART 1**** download files and align to genome
@@ -157,6 +179,7 @@ rule downloadAnnotation:
         python3 scripts/clean_fasta.py /tmp/gencodeProtSeq.fa {output.prot_seq}
         module load {samtools_version}
         samtools faidx ref/gencode_genome.fa
+        awk '$3 == "transcript"' ref/gencode_comp_ano.gtf | cut -f1,7,4,5 > ref/gencode_comp_ano_trim.tsv
         '''
 
 # This is manily for rerunning on biowulf,
@@ -215,6 +238,16 @@ rule calculate_cov:
         mosdepth coverage_files/$sample/cov {input[0]}
         '''
 
+rule run_stringtie:
+    input:bam_path + 'STARbams/{sample}/Sorted.out.bam'
+    output:'st_out/{sample}.gtf'
+    shell:
+        '''
+        module load {stringtie_version}
+        stringtie {input[0]} -o {output[0]} -p 8 -G {ref_GTF}
+        '''
+
+
 '''
 ****PART 2**** build Transcriptome, and process
 -Reminder that STAR makes the bam even if the alignment fails
@@ -230,35 +263,39 @@ rule calculate_cov:
     - use gffcompare gtf not stringtie-merge gtf because gffcompare is significantly better than stringtie at mapping
     back to genes. GFFcompare found 20K novel tx vs 18K on st-merge, with the same number of transcript.
     - at the initial merge step with stringtie, filteing out transcripts with at least 1 tpm in a third of the samples
+-09/20/19
+    Revised strategy: merge w/o genome guide with 1 TPM as c/o. quantify with salmon, remove tx with avg count< 1, and high
+    bootstrap variance. filter removed transcripts from gtf, and then requantify. and then merge gtfs together.
 
 '''
 
 
-rule run_stringtie:
-    input:bam_path + 'STARbams/{sample}/Sorted.out.bam'
-    output:'st_out/{sample}.gtf'
-    shell:
-        '''
-        module load {stringtie_version}
-        stringtie {input[0]} -o {output[0]} -p 8 -G {ref_GTF}
-        '''
 #gffread v0.9.12.Linux_x86_64/
 rule merge_gtfs_by_tissue:
-    input: lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
+    input:lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
+    params: cutoff= lambda wildcards: merge_cutoff(wildcards.subtissue, sample_dict)
     output: 'data/gtfs/raw_tissue_gtfs/{subtissue}_st.gtf'
     shell:
         '''
-
 	    module load {stringtie_version}
-        stringtie --merge  -l {wildcards.subtissue}_MSTRG  -T 1  -F 0 {input} |\
+        stringtie --merge  -l {wildcards.subtissue}_MSTRG  -T {params.cutoff} -F 0 {input} |\
          tr '*' '+' > {output}
         '''
 
-'''
-This chunk runs twice, where we first quantify the raw transcriptome, then filter, rebuild and requantify
+# rule optimize_gtf_building:
+#     input:tx_counts='data/misc/gencode_expressed_transcripts_per_tissue.tsv',\
+#      gtfs=lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
+#     output:'data/gtfs/raw_tissue_gtfs/{subtissue}_st.gtf'
+#     shell:
+#         '''
+#
+#         python3 scripts/maximizer.py {stringtie_version} ref/gencode_comp_ano_trim.tsv {input.tx_counts} {ref_GTF} {wildcards.subtissue} {output} {input.gtfs}
+#
+#         '''
 
-'''
-#************************************************************************************************************************
+
+
+
 rule make_tx_fasta:
     input: tool='gffread/gffread',gtf= lambda wildcards: build_subtissue_lookup(wildcards.subtissue, wildcards.build)
     output: 'data/seqs/{build}/{subtissue}_tx.fa'
@@ -291,10 +328,10 @@ rule run_salmon:
         salmon quant -p 8 -i {input.index} -l A --gcBias --seqBias --numBootstraps 100  {params.cmd} -o {params.outdir}
         python3 scripts/convertBootstrapsToTsv.py {params.outdir} {params.outdir}
         '''
-#***************************************************************************************************************************************
+
 rule aggregate_salmon_counts_and_filter_gtf:
     input: qfiles= lambda wildcards: subtissue_to_sample_agg(wildcards.subtissue, sample_dict),\
-     gtf='data/gtfs/raw_tissue_gtfs/{subtissue}_st.gtf'
+     gtf=lambda wildcards: ['data/gtfs/raw_tissue_gtfs/{}_st.gtf'.format(wildcards.subtissue) if wildcards.subtissue != 'gencode' else 'ref/gencode_comp_ano.gtf']
     params: qfolder= lambda wildcards: 'data/rawST_tx_quant_files/'+ wildcards.subtissue
     output: 'data/exp_files/{subtissue}_tx_quant.tsv.gz', 'data/gtfs/filtered_tissue/{subtissue}.gtf'
     shell:
@@ -322,7 +359,7 @@ rule preprMats_running:
             prefix={params.bam_dir}/STARbams/
             suffix=/Sorted.out.bam
             grep $t {sample_file} |\
-              awk ' $3 == "y" {{print $1}}'  |\
+              awk ' $2 == "y" {{print $1}}'  |\
               sed -e "s|^|$prefix|g" - |\
               sed -e "s|$|$suffix|g" - |\
               tr '\\n' ',' > {params.bam_dir}/ref/rmats_locs/$t.rmats.txt
@@ -342,7 +379,7 @@ rule runrMATS:
         '''
 
 rule process_rmats_output:
-    input: expand('rmats_out/{sub_tissue}/{event}.MATS.JC.txt', sub_tissue=subtissues, event= rmats_events)
+    input: expand('rmats_out/{sub_tissue}/{event}.MATS.JC.txt', sub_tissue=[x for x in subtissues if x != 'Cornea_Fetal.Tissue'], event= rmats_events)
     params: rmats_od='rmats_out/', rm_locdir='ref/rmats_locs/'
     output: 'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv'
     shell:
@@ -370,7 +407,7 @@ rule merge_tissue_gtfs:
         Rscript scripts/fix_gene_id.R {working_dir} data/gffcomp_dir/all_tissues.combined.gtf {ref_GTF} {output[0]}
         '''
 
-
+#this rule is what triggers the requantification
 rule merge_filtered_salmon_quant:
     input: qfiles=subtissue_to_sample_all(sample_dict), track_file='data/gffcomp_dir/all_tissues.tracking'
     params: qdir='data/filter_tx_quant_files'

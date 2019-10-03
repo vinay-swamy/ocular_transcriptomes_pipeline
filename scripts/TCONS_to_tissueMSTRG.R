@@ -37,13 +37,16 @@ process_columns <- function(tab,col_name){
          do.call(rbind, .) %>% as.data.frame(stringsAsFactors=F)
     colnames(tx_simple) <- c('transcript_id', col_name)
     #%>% rename(!!col_name:=oId) %>% distinct
-    det_c <- det[!simple]
-    name_col_c <- name_col[!simple]
-    tx_comp <- lapply(1:length(det_c), function(i)  det_c[[i]][-1] %>%
-                            .[grepl('MSTRG\\.\\d+\\.\\d+', .) | grepl('ENST', .)] %>%
-                            {tibble(transcript_id=rep(name_col_c[i], length(.)),oId= . )}) %>%
-        bind_rows() %>% rename(!!col_name:=oId) %>% distinct
+    tx_comp=data.frame()
+    if(sum(!simple) > 0){
+        det_c <- det[!simple]
+        name_col_c <- name_col[!simple]
 
+        tx_comp <- lapply(1:length(det_c), function(i)  det_c[[i]][-1] %>%
+                                .[grepl('MSTRG\\.\\d+\\.\\d+', .) | grepl('ENST', .)] %>%
+                                {tibble(transcript_id=rep(name_col_c[i], length(.)),oId= . )}) %>%
+            bind_rows() %>% rename(!!col_name:=oId) %>% distinct
+        }
     return(list(simple=tx_simple, comp=tx_comp))
 }
 
@@ -79,7 +82,7 @@ tcons2mstrg <- mclapply(cn, function(col) process_columns(track_tab,col), mc.cor
 tc2mstrg_simple <- lapply(tcons2mstrg, function(x) x[['simple']]) %>% reduce(full_join)
 tc2mstrg_complex <-lapply(tcons2mstrg, function(x) x[['comp']])
 
-all_quant <- lapply(tissues, function(x) suppressMessages(read_salmon(quant_path, x)))
+all_quant <- mclapply(tissues, function(x) suppressMessages(read_salmon(quant_path, x)), mc.cores = 8)
 
 
 tis_cols_idx <- ncol(tc2mstrg_simple)

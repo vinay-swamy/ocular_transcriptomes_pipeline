@@ -18,12 +18,12 @@ library(tidyverse)
 library(matrixStats)
 # bs_files <- list.files('data/quant_files/RPE_Fetal.Tissue', pattern = 'quant_bootstraps.tsv.gz', recursive = T, full.names = T)
 # 
-# proc_boostrap <- function(file){
-#     BS_raw <- read_tsv(file, col_names = F)
-#     name <- str_split(file,'/')[[1]][4]
-#     res <- tibble(transcript_id=BS_raw$X1, !!name := BS_raw[,-1] %>% as.matrix %>% {matrixStats::rowVars(.)} )
-#     return(res)
-# }
+proc_boostrap <- function(file){
+    BS_raw <- read_tsv(file, col_names = F)
+    name <- str_split(file,'/')[[1]][4]
+    res <- tibble(transcript_id=BS_raw$X1, !!name := BS_raw[,-1] %>% as.matrix %>% {matrixStats::rowVars(.)} )
+    return(res)
+}
 # 
 # 
 # all_bs <- lapply(bs_files, proc_boostrap) %>% reduce(left_join)

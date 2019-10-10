@@ -1,0 +1,119 @@
+---
+title: "Last Exons comapred to APA "
+output: html_notebook
+---
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/')
+
+```
+
+
+
+```{r}
+gfc_gtf <- rtracklayer::readGFF('occular_transcriptomes_paper/all_tissues.combined.gtf')
+load('dev_eyeintegration_splicing/rdata/all_ref_tx_exons.rdata')
+novel_transcripts <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(!grepl('TCONS', gene_name))
+novel_loci <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(grepl('TCONS', gene_name))
+novel_single_exon_tx <- novel_transcripts$transcript_id %>% {filter(gfc_gtf, transcript_id  %in% .)} %>% group_by(transcript_id) %>%
+    summarise(count=n()) %>% filter(count == 2) %>% pull(transcript_id) %>%  {filter(novel_transcripts, transcript_id %in% .)}
+novel_transcripts <- filter(novel_transcripts, !transcript_id %in% novel_single_exon_tx$transcript_id)
+
+
+
+novel_exons <- gfc_gtf %>% 
+    filter(type == 'exon',
+           !transcript_id %in% novel_loci$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id ) %>%
+    select(seqid, strand, start, end) %>% 
+    anti_join( all_exons) %>%
+    mutate(id=paste0('nvl_exon', 1:nrow(.)))
+
+nvl_start <- anti_join(novel_exons %>% select(seqid, strand, start, id), all_exons) %>% { novel_exons$id  %in% .$id}
+nvl_end <- anti_join(novel_exons %>% select(seqid, strand, end, id), all_exons) %>% {novel_exons$id  %in% .$id }
+
+novel_exons <- novel_exons %>% mutate(nv_type=case_when(nvl_start & nvl_end ~ 'novel_exon',
+                                         !nvl_start & nvl_end ~ 'A3SS',
+                                         nvl_start & !nvl_end ~ 'A5SS',
+                                         !nvl_start & !nvl_end ~ 'RI'))
+
+
+gfc_gtf_ano <- filter(gfc_gtf, !transcript_id %in% novel_loci$transcript_id)
+gfc_gtf_ref <- filter(gfc_gtf_ano, !transcript_id %in% novel_transcripts$transcript_id)
+
+gfc_gtf_full <-  gfc_gtf_ano %>% filter(transcript_id  %in% novel_transcripts$transcript_id) %>% select(seqid, strand, start, end) %>%
+    distinct %>% anti_join(gfc_gtf_ref) %>% anti_join(all_exons) %>% anti_join(all_transcripts) %>%  
+    mutate(is.novel=T) %>% left_join(gfc_gtf_ano, .) %>% mutate(is.novel=replace_na(is.novel, F))
+
+
+# 
+
+
+
+terminal_exons <-  gfc_gtf_full %>% filter(type == 'exon') %>% group_by(transcript_id) %>% 
+  summarise(seqid=last(seqid), strand=last(strand), start=last(start), end=last(end), gene_name=last(gene_name)) %>% 
+  select(-transcript_id) %>%  distinct
+
+same_ends <- terminal_exons %>% group_by(seqid, strand, end) %>% 
+  summarise(min_start=min(start), count=n(), s_gn=first(gene_name)) %>% filter(count>1)
+```
+
+I'm going to take a slightly different approach, at least at first. The alternative promoter is a bit more broad a
+I have my set of unique ends, and now I'm going to check what the closest polyA signal is, keeping only sites where there was defined
+
+```{r}
+uniq_ends <- terminal_exons %>% anti_join(same_ends) %>% 
+  bind_rows(same_ends %>% select(seqid, strand, start=min_start, end, gene_name =s_gn))
+multi_end_genes <- uniq_ends %>% group_by(gene_name) %>% summarise(count=n()) %>% filter(count>1) %>% pull(gene_name)
+
+uniq_ends_multi_gene <- novel_exons %>% 
+    mutate(novel_end=nvl_end) %>% 
+    select(seqid, strand, end, novel_end) %>% 
+    filter(novel_end) %>% distinct %>% 
+    left_join(uniq_ends, .) %>% 
+    mutate(novel_end=replace_na(novel_end, F)) %>% 
+    filter(gene_name %in% multi_end_genes) %>%
+    mutate(te_id=paste0('te_', 1:nrow(.)), score=1000, fstart=end ,fend=fstart+1 )
+
+ref_uniq_end <- filter(uniq_ends_multi_gene, !novel_end)
+novel_unique_end <- filter(uniq_ends_multi_gene, novel_end)
+           
+           
+                     
+
+pa_atlas <- read_tsv('occular_transcriptomes_paper/atlas.clusters.hg38.2-0.bed.gz', col_names = F, 
+                     col_types =c('cddcdcdddcc')) %>% mutate(pa_id=paste0('pa_', 1:nrow(.)), score= 888)         
+chroms <-  pa_atlas$X1 %>% as.numeric() %>% {!is.na(.)}      
+fix <-  paste0('chr',pa_atlas$X1[chroms])           
+pa_atlas$X1[chroms] <- paste0('chr',pa_atlas$X1[chroms])   
+
+
+```
+
+
+What is the closest polyA signal to for each exon end
+
+
+```{r}
+ref_bed <-  ref_uniq_end %>% select(seqid, fstart,fend, te_id, score,strand) %>% 
+    from_data_frame %>% RBedtools('sort', i=.)
+novel_bed <- novel_unique_end %>% select(seqid, fstart,fend, te_id, score,strand) %>% 
+    from_data_frame %>% RBedtools('sort', i=.)
+pa_bed <- pa_atlas %>% select(X1,X2,X3,pa_id,score,X6) %>% from_data_frame %>% RBedtools('sort', i=.)
+
+
+ref_closest_pa <- RBedtools('closest', options = '-s -D a', a=ref_bed, b=pa_bed ) %>% to_data_frame
+novel_closest_pa <- RBedtools('closest', options= '-s -D a', a=novel_bed, b=pa_bed) %>% to_data_frame
+
+```
+
+let n be the match between pa site and te-end
+
+```{r}
+
+```
+
+
+
+
+
+

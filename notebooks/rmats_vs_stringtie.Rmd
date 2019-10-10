@@ -1,0 +1,62 @@
+---
+title: "Comparing rMATs to "
+output: html_notebook
+---
+
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/dev_eyeintegration_splicing/')
+```
+
+```{r}
+library(tidyverse)
+load('rdata/novel_exon_classification.rdata')
+novel_exons_TSES <- novel_exons_TSES %>% select(-id) %>% distinct()
+gtf <- rtracklayer::readGFF('data/gtfs/all_tissues.combined.gtf')
+tcons2mstrg <- read_tsv('data/misc/gfc_TCONS_to_st_MSTRG.tsv')
+sample_table <- read_tsv('sampleTableDev.tsv', col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue','origin' ))
+  rmats_inc_counts <- read_tsv('data/rmats/all_tissues_psi.tsv')
+colnames(rmats_inc_counts) <- str_split(colnames(rmats_inc_counts), '_psi') %>% sapply(function(x) x[1])
+gtf_exons <- filter(gtf, type == 'exon') %>% select(seqid, strand, start, end , transcript_id)
+novel_exons_txIDs <- novel_exons_TSES %>% inner_join(gtf_exons)
+
+```
+
+Retina Fetal
+
+```{r}
+retina_fetal_samples <- filter(sample_table, subtissue == 'Retina_Fetal.Tissue') %>% pull(sample)
+rm_inc_retinaFetal <- rmats_inc_counts[,c(colnames(rmats_inc_counts)[1:4], retina_fetal_samples)] %>%
+  filter(!is.na(SRS2582164), rowSums(.[,5:9]) >=(.05*5))
+
+rf_tx <- filter(tcons2mstrg, !is.na(Retina_Fetal.Tissue)) %>% pull(transcript_id)
+gtf_exons <- filter(gtf, type == 'exon', transcript_id %in% rf_tx) %>% select(seqid, strand, start, end) %>% distinct
+novel_exons_rf <- inner_join(novel_exons_TSES, gtf_exons) %>% filter(!nv_type_rc %in% c('novel_TSS', 'novel_TES'))
+
+novel_exons_rf_in_rmats <- novel_exons_rf %>% mutate(start=start-1) %>% inner_join(rm_inc_retinaFetal)
+
+novel_exons_rf %>% select(seqid, strand, start, end) %>% distinct %>% nrow 
+
+
+```
+
+
+
+
+
+```{r}
+
+
+
+new <- rtracklayer::readGFF('testing/transcripts.fa.transdecoder.genome.gff3') %>% as.data.frame %>%
+  mutate(ID=str_extract(ID,'TCONS_[0-9]+|ENSG[0-9]+'))
+
+
+k <- rmats_inc_counts[,colnames(novel_exons_rf_in_rmats)[9:13]]
+k[is.na(k)] <- 0
+i <- cor(k) 
+i[i==1] <- NA
+mean(i, na.rm = T)
+```
+

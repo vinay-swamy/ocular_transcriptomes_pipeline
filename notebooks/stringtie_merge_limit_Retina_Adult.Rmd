@@ -1,0 +1,53 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+
+sample_table <- read_tsv('~/NIH/eyeintegration_splicing/sampleTableV6.tsv')
+mr <- list.files('/Volumes/data/eyeintegration_splicing/testing/', pattern = 'mapping_rates.tab', full.names = T)
+mr
+df <- lapply(mr, function(x) read_delim(x, ' ', col_names = F)) %>% reduce(inner_join, by='X1') 
+colnames(df) <- c('sample', '1_TPM_all','gencode', 'Retina_Adult_.25', 'Retina_adult_at_Retina_Fetal', '.5_TPM_all', 'validate_mappings')
+df %>% mutate(dn_delta= ngg_.5_mapping_rate - gencode_mapping_rate) %>% pull(dn_delta) %>% quantile(seq(0,1,.1))
+
+sample_table %>% pull(sample) %>% {filter(df, sample %in% .)} %>% 
+  mutate(dn_delta= ngg_.5_mapping_rate - gencode_mapping_rate) %>% left_join(sample_table) %>% group_by(subtissue) %>% 
+  summarise(med_delta=median(dn_delta))
+
+
+sample_table %>% pull(sample) %>% {filter(df, sample %in% .)} %>% 
+  mutate(dn_delta= ngg_.5_mapping_rate - gencode_mapping_rate) %>% left_join(sample_table) %>% group_by(subtissue) %>% 
+  summarise(med_delta=median(dn_delta))
+ # pull(dn_delta) %>% quantile(seq(0,1,.1))
+sample_table %>% filter(subtissue == "Retina_Adult.Tissue") %>% pull(sample) %>% {filter(df, sample %in% .)} %>% 
+  mutate(diff= ngg_.5_mapping_rate- gencode_mapping_rate ) %>% pull(diff) %>% median()
+sample_table %>% filter(subtissue == "Retina_Adult.Tissue") %>% pull(sample) %>% {filter(df, !sample %in% .)} %>% 
+  mutate(diff= ngg_.5_mapping_rate- gencode_mapping_rate ) %>% pull(diff) %>% median()
+
+
+
+
+
+```
+
+```{r}
+median_mapping_rate_change_by_tissue <-  sample_table %>% pull(sample) %>% {filter(df, sample %in% .)} %>% 
+  mutate(TPM_1_delta= `1_TPM_all` - gencode,
+         TPM_.5_delta= `.5_TPM_all` - gencode,
+         Adult_at_fetal_delta= Retina_adult_at_Retina_Fetal - gencode,
+         Adult_at.25_delta=Retina_Adult_.25 - gencode,
+         VM_added_delta=validate_mappings - gencode) %>% 
+    select(sample, contains('delta')) %>% 
+    left_join(sample_table) %>% 
+    group_by(subtissue) %>% 
+  summarise(med_1_TPM=median(TPM_1_delta), med_.5_TPM=median(TPM_.5_delta), med_Adult_at_fetal=median(Adult_at_fetal_delta),
+            med_Adult_at_.25=median(Adult_at.25_delta), med_VM_added=median(VM_added_delta)) %>% 
+  mutate(VM_loss=abs(med_VM_added) - abs(med_.5_TPM))
+
+
+save.image('~/NIH/occular_transcriptomes_paper/data/strigntie_merge_Retina_Adult_data.Rdata')
+
+```
+

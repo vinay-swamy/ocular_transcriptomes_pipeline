@@ -1,0 +1,27 @@
+---
+title: "Demircioğlu et al promoter analysis"
+output: html_notebook
+---
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/dev_eyeintegration_splicing/')
+
+```
+
+
+
+```{r}
+library(tidyverse)
+gencode_v19 <- rtracklayer::readGFF('gencode.v19.chr_patch_hapl_scaff.annotation.gtf.gz')
+gencode_tx <- gencode_v19 %>% filter(type == 'transcript') %>% 
+    select(transcript_id, gene_id, gene_name, seqid, strand, start, end)
+promoter2transcript <- read_csv('cell_promoter_paper.csv') %>% rename(transcript_id=transcriptId) %>% inner_join(gencode_tx)
+
+start_difs <- promoter2transcript %>% group_by(promoterId) %>% summarise(max_diff=max(start) - min(start))
+quantile(start_difs$max_diff, seq(.8,1,.05))
+
+
+
+
+```
+

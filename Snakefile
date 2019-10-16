@@ -167,6 +167,19 @@ rule downloadAnnotation:
         awk '$3 == "transcript"' ref/gencode_comp_ano.gtf | cut -f1,7,4,5 > ref/gencode_comp_ano_trim.tsv
         '''
 
+rule clean_phylop_and_snps:
+    input: snps=expand('ref/snps/bed_chr_{chrom}.bed.gz', chrom=list(range(23))[1:]), pp='ref/phylop_20/hg38.phyloP20way.bw'
+    output:snps='ref/snps/hg38.snps.all.sorted.bed.gz', pp='ref/phylop_20/hg38.phyloP20way.sorted.bed.gz'
+    shell:
+        '''
+        module load ucsc
+        module load bedops
+        moulde load bedtools
+        bigWigToWig {input.pp} | wig2bed | bedtools sort -i - | gzip -c - > {output.pp}
+        for i in ref/snps/bed_chr_*.bed.gz ; do zcat $i | tail -n+2  ; done  |  bedtools sort -i - |  gzip -c - > {output.snps}
+        '''
+
+
 # This is manily for rerunning on biowulf,
 rule build_gffread:
     output:'gffread/gffread'
@@ -422,10 +435,10 @@ rule clean_pep:
                 #python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
 
 rule catagorize_novel_exons:
-    input: stringtie_full_gtf
-    output: 'data/rdata/novel_exon_classification.Rdata'
+    input: gtf=stringtie_full_gtf, gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
+    output: classfile='data/rdata/novel_exon_classification.Rdata', gtfano='data/gtfs/all_tissues.combined_NovelAno.gtf'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/classify_novel_exons.R {working_dir} {stringtie_full_gtf} {sample_file} {output}
+        Rscript scripts/classify_novel_exons.R {working_dir} {stringtie_full_gtf} {sample_file} {input.gff3} {output}
         '''

@@ -1,16 +1,18 @@
 library(tidyverse)
 library(RBedtools)
-# args <- c('~/NIH/dev_eyeintegration_splicing/',
-#           'data/gtfs/all_tissues.combined.gtf',
-#           'sampleTableDev.tsv',
-#           'testing/out.rdata'
-#           )
-#args <- c('../dev_eyeintegration_splicing/', '~/NIH/occular_transcriptomes_paper/all_tissues.combined.gtf', '/Volumes/data/eyeintegration_splicing/sampleTableV6.tsv', '~/NIH/occular_transcriptomes_paper/data/all_tissues.combined_V1.Rdata')
+source('~/scripts/write_gtf.R')
+args <- c('~/NIH/dev_eyeintegration_splicing/', '~/NIH/occular_transcriptomes_paper/all_tissues.combined.gtf', 
+          '/Volumes/data/eyeintegration_splicing/sampleTableV6.tsv', 
+          '~/NIH/eyeintegration_splicing/dl_data/all_tissues.combined_transdecoderCDS.gff3.gz',
+          '~/NIH/occular_transcriptomes_paper/data/all_tissues.combined_V1.Rdata',
+          '~/NIH/occular_transcriptome_shiny/all_tissues.combined_NovelAno.gtf')
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
 sample_table_file <- args[3]
-outfile <- args[4]
+gff3_file <- args[4]
+outfile <- args[5]
+gtf_ano_outfile <- args[6]
 setwd(working_dir)
 
 if(!file.exists('rdata/all_ref_tx_exons.rdata')){
@@ -141,6 +143,42 @@ novel_exons_TSES <- novel_exons_TSES %>% mutate(nv_type_rc = case_when(novelTSS 
                                                                        TRUE ~ nv_type))
 save(uniq_start_multi_gene,all_exons, all_transcripts, novel_exons_TSES,  
      uniq_ends_multi_gene, novel_loci_distinct, novel_transcripts, file = outfile)
+#now lets make a formated_gtf that we can use for everything
+##this should have: transcript_type:pc, or not pc., exon_coding as well as is.novel exon, 
+##novel exon type, first or last exon, single exon
+##
+gff3 <- rtracklayer::readGFF(gff3_file) %>% as_tibble %>%
+  mutate(ID=str_extract(ID,'TCONS_[0-9]+|ENSG[0-9]+'), type=as.character(type))
+tcons2mstrg <- gfc_gtf_full %>% filter(type == 'transcript') %>%  select(transcript_id, oId) %>% distinct
+exon_type <- gff3 %>% filter(type %in%c('five_prime_UTR', 'three_prime_UTR', 'CDS')) %>% 
+  select(seqid, strand, start, end, transcript_id=ID, exon_type=type) %>% distinct
+exon_info <- novel_exons_TSES %>% select(seqid, strand, start, end, novel_exon_id=id, novel_exon_type=nv_type_rc)
+last_exons <- gfc_gtf %>% filter(type == 'exon') %>% select(seqid, strand, start, end, transcript_id) %>% 
+  group_by(transcript_id) %>% 
+  summarise(seqid=last(seqid), strand=last(strand), start=last(start), end=last(end)) %>%
+  mutate(is.last='TRUE')
+single_exons <- gfc_gtf %>% filter(type == 'exon') %>% group_by(transcript_id) %>% summarise(count=n()) %>% 
+  filter(count == 1) %>% pull(transcript_id)
+
+complete_gtf <- gfc_gtf %>% 
+  select(-oId, -class_code, -tss_id, -contained_in, -cmp_ref, -cmp_ref_gene) %>% #remove junk
+  left_join(tcons2mstrg) %>% #add fixed oId
+  mutate(transcript_type= ifelse(transcript_id %in% gff3$ID, 'protein_coding', 'noncoding'), 
+         type=as.character(type)) %>% # add transcript type
+  left_join(exon_type) %>% # add exon type - pc/nc/utr/boundary 
+  mutate(exon_type=case_when(type == 'transcript' ~ '.', transcript_type=='noncoding' ~ 'nc',TRUE~ exon_type),
+         exon_type=replace_na(exon_type, 'boundary') ) %>%  # fix missing values in exon type
+  left_join(last_exons) %>% # mark which exons are last exons
+  left_join(exon_info) %>% #novel exon type - TSS/TES,
+  mutate(is.last=replace_na(is.last, 'FALSE'),is.singleExon=ifelse(transcript_id %in% single_exons, 'TRUE', 'FALSE') )
+                                  
+
+write_gtf3(complete_gtf,gtf_ano_outfile)
+
+
+
+
+
 
 
 

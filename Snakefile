@@ -52,7 +52,7 @@ def subtissue_to_gtf(subtissue, sample_dict):
     res=[]
     for sample in sample_dict.keys():
         if sample_dict[sample]['subtissue']==subtissue :
-            res.append('st_out/{}.gtf'.format(sample))
+            res.append('data/st_filt/{}.gtf'.format(sample))
     return (res)
 
 
@@ -133,7 +133,8 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
+    input:expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
+    # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
 '''
 ****PART 1**** download files and align to genome
@@ -268,15 +269,22 @@ rule run_stringtie:
 
 
 #gffread v0.9.12.Linux_x86_64/
-rule merge_gtfs_by_tissue:
-    input:lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
-    params: cutoff= lambda wildcards: merge_cutoff(wildcards.subtissue, sample_dict)
-    output: 'data/gtfs/raw_tissue_gtfs/{subtissue}_st.gtf'
+rule filter_sample_gtf:
+    input:'st_out/{sample}.gtf'
+    output:'data/st_filt/{sample}.gtf'
     shell:
         '''
-	    module load {stringtie_version}
-        stringtie --merge  -l {wildcards.subtissue}_MSTRG  -T {params.cutoff} -F 0 {input} |\
-         tr '*' '+' > {output}
+        module load {stringtie_version}
+        stringtie --merge -T .1 -F0 {input} > {output}
+        '''
+rule merge_gtfs_by_tissue:
+    input:lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
+    params: outdir= lambda wildcards: 'data/gtfs/raw_tissue_gtfs/{}'.format(wildcards.subtissue)
+    output: 'data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf'
+    shell:
+        '''
+	    module load {gffcompare_version}
+        gffcompare -r {ref_GTF} -o {params.outdir} {input}
         '''
 
 rule make_tx_fasta:

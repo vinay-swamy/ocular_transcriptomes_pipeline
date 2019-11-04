@@ -16,49 +16,22 @@ gtf_ano_outfile <- args[6]
 setwd(working_dir)
 
 if(!file.exists('rdata/all_ref_tx_exons.rdata')){
-  base_ref <- rtracklayer::readGFF('ref/gencode_comp_ano.gtf') %>% mutate(origin='gencode', seqid=as.character(seqid))
-  ensembl_ref <- rtracklayer::readGFF('ref/ensembl_ano.gtf') %>% mutate(seqid=as.character(seqid), origin='ensembl')
-  chr <-  paste0('chr', ensembl_ref$seqid %>% as.character)
-  non_chr <-  ensembl_ref$seqid %>% as.character %>% as.numeric %>% is.na
-  ensembl_ref <- ensembl_ref %>% mutate(seqid=replace(seqid %>% as.character,!non_chr, chr[!non_chr]))
-  
-  refseq_ucsc <- rtracklayer::readGFF('ref/ucsc.gtf')  %>% mutate(origin='ucsc', seqid=as.character(seqid))
-  
-  refseq_ncbi <- rtracklayer::readGFF('ref/refseq_ncbi.gff3') %>% as.tibble
-  seq2reg <- refseq_ncbi %>% filter(type == 'region', !is.na(chromosome), chromosome!='Unknown') %>% select(seqid, chromosome) %>%
-    distinct %>%
-    mutate(seqid=as.character(seqid), rep_seq = paste0('chr', chromosome), rep_seq=case_when(rep_seq=='chrX' ~ 'X',
-                                                                                             rep_seq=='chrY' ~ 'Y',
-                                                                                             TRUE ~ rep_seq))
-  refseq_ncbi <- inner_join(refseq_ncbi, seq2reg[,-2]) %>% rename(region_id=seqid, seqid=rep_seq) %>%
-    select(seqid, region_id, everything()) %>% mutate(origin='ncbi')
-  
-  all_transcripts <- rbind(
-    base_ref %>% filter(type == 'transcript') %>% select(seqid, strand, start, end, origin),
-    ensembl_ref %>% filter(type == 'transcript') %>% select(seqid, strand, start, end, origin),
-    refseq_ucsc %>% filter(type == 'transcript') %>% select(seqid, strand, start, end, origin),
-    refseq_ncbi %>% filter(type == 'transcript') %>% select(seqid, strand, start, end, origin)
-  ) %>% mutate(seqid=as.character(seqid)) %>% filter(!duplicated(.[,-5]))
-  
-  table(all_transcripts$origin)
-  all_exons <- rbind(
-    base_ref %>% filter(type == 'exon') %>% select(seqid, strand, start, end, origin),
-    ensembl_ref %>% filter(type == 'exon') %>% select(seqid, strand, start, end, origin),
-    refseq_ucsc %>% filter(type == 'exon') %>% select(seqid, strand, start, end, origin),
-    refseq_ncbi %>% filter(type == 'exon') %>% select(seqid, strand, start, end, origin)
-  ) %>%
-    mutate(seqid=as.character(seqid)) %>% filter(!duplicated(.[,-5]))
-  save(all_transcripts, all_exons, file='rdata/all_ref_tx_exons.rdata')
+  source('scripts/make_allexonsrdata.R')
 } else {load('rdata/all_ref_tx_exons.rdata')}
 gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file)
 
-novel_transcripts <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(!grepl('TCONS', gene_name))
-novel_loci <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(grepl('TCONS', gene_name))
+novel_transcripts <- anti_join(gfc_gtf %>% filter(type == 'exon'), all_exons) %>% 
+  filter(!grepl('TCONS', gene_name)) %>% 
+  pull(transcript_id) %>% {filter(gfc_gtf, type == 'transcript', transcript_id %in% .)}
+built_ref_tx <- filter(gfc_gtf, type == 'transcript') %>% inner_join(all_transcripts) 
+novel_loci <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(class_code =='u')
+
 novel_single_exon_tx <- novel_transcripts$transcript_id %>% {filter(gfc_gtf, transcript_id  %in% .)} %>% group_by(transcript_id) %>%
   summarise(count=n()) %>% filter(count == 2) %>% pull(transcript_id) %>%  {filter(novel_transcripts, transcript_id %in% .)}
 novel_transcripts <- filter(novel_transcripts, !transcript_id %in% novel_single_exon_tx$transcript_id)
 
 # remove novel loci that overlap with known genes
+## Not going to add the 10kb upstream/downstream yet
 novel_loci_bed <- novel_loci %>% filter(type == 'transcript') %>%  mutate(score=999) %>% 
   select(seqid, start, end, transcript_id, score, strand) %>% from_data_frame %>% RBedtools('sort',i=.)
 
@@ -88,15 +61,15 @@ novel_exons <- novel_exons %>% mutate(nv_type=case_when(nvl_start & nvl_end ~ 'n
                                                         !nvl_start & !nvl_end ~ 'RI'))
 
 
-
-
+# 
+# 
 gfc_gtf_ano <- filter(gfc_gtf, !transcript_id %in% novel_loci$transcript_id)
 gfc_gtf_ref <- filter(gfc_gtf_ano, !transcript_id %in% novel_transcripts$transcript_id)
 
 gfc_gtf_full <-  gfc_gtf_ano %>% filter(transcript_id  %in% novel_transcripts$transcript_id) %>% select(seqid, strand, start, end) %>%
-  distinct %>% anti_join(gfc_gtf_ref) %>% anti_join(all_exons) %>% anti_join(all_transcripts) %>%  
+  distinct %>% anti_join(gfc_gtf_ref) %>% anti_join(all_exons) %>% anti_join(all_transcripts) %>%
   mutate(is.novel=T) %>% left_join(gfc_gtf_ano, .) %>% mutate(is.novel=replace_na(is.novel, F))
-
+# 
 
 # 
 # uniq_tss <-  gfc_gtf_full %>% filter(exon_number==1) %>% 
@@ -141,6 +114,7 @@ novel_exons_TSES[is.na(novel_exons_TSES)] <- F
 novel_exons_TSES <- novel_exons_TSES %>% mutate(nv_type_rc = case_when(novelTSS ~ 'novel_TSS',
                                                                        novelTES ~ 'novel_TES',
                                                                        TRUE ~ nv_type))
+
 save(uniq_start_multi_gene,all_exons, all_transcripts, novel_exons_TSES,  
      uniq_ends_multi_gene, novel_loci_distinct, novel_transcripts, file = outfile)
 #now lets make a formated_gtf that we can use for everything

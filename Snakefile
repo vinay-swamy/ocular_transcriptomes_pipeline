@@ -79,7 +79,7 @@ def build_subtissue_lookup(subtissue, build=''):
         return 'ref/gencode_comp_ano.gtf'
     else:
         if build == 'rawST_tx_quant_files':
-            return 'data/gtfs/raw_tissue_gtfs/{}_st.gtf'.format(subtissue)
+            return f'data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
         else :
             return 'data/gtfs/filtered_tissue/{}.gtf'.format(subtissue)
 def merge_cutoff(subtissue, sample_dict):
@@ -133,7 +133,8 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input:expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
+    input:'data/exp_files/all_tissue_quant.tsv.gz'
+    #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
 '''
@@ -275,16 +276,24 @@ rule filter_sample_gtf:
     shell:
         '''
         module load {stringtie_version}
-        stringtie --merge -T .1 -F0 {input} > {output}
+        stringtie --merge -T 1 -F0 {input} > {output}
         '''
 rule merge_gtfs_by_tissue:
     input:lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
     params: outdir= lambda wildcards: 'data/gtfs/raw_tissue_gtfs/{}'.format(wildcards.subtissue)
-    output: 'data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf'
+    output: 'data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf', 'data/gtfs/raw_tissue_gtfs/{subtissue}.tracking'
     shell:
         '''
 	    module load {gffcompare_version}
         gffcompare -r {ref_GTF} -o {params.outdir} {input}
+        '''
+rule filter_tissue_gtfs:
+    input:gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf',track='data/gtfs/raw_tissue_gtfs/{subtissue}.tracking'
+    output:'data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/filter_gtf_gffcompare.R {working_dir} {input.gtf} {ref_GTF} {input.track}{wildcards.subtissue} {sample_file} {output}
         '''
 
 rule make_tx_fasta:

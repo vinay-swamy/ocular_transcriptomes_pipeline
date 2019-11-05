@@ -10,6 +10,17 @@
 		"extra" : "",
 		"name" : "{rule}.job"
 	},
+        "filter_sample_gtf" :
+        {
+                "partition" : "quick",
+                "time" : "4:00:00",
+                "mem" : "16g",
+                "cpus-per-task" : "1",
+                "output"  : "00log/{rule}_{wildcards}.out",
+                "error" : "00log/{rule}_{wildcards}.err",
+                "extra" : "",
+                "name" : "{rule}.job"
+        },
 	"build_STARindex" :
 	{
 		"partition" : "norm",

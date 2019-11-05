@@ -1,0 +1,104 @@
+---
+title: "Soneson JCC score"
+output: html_notebook
+---
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/eyeintegration_splicing/')
+```
+
+
+from their vignette
+```{r}
+library(jcc)
+library(dplyr)
+library(BSgenome.Hsapiens.NCBI.GRCh38)
+gtf <- system.file("extdata/Homo_sapiens.GRCh38.90.chr22.gtf.gz", 
+                   package = "jcc")
+bam <- system.file("extdata/reads.chr22.bam", package = "jcc")
+## Fit fragment bias model
+biasMod <- fitAlpineBiasModel(gtf = gtf, bam = bam, organism = "Homo_sapiens",
+                              genome = Hsapiens, genomeVersion = "GRCh38",
+                              version = 90, minLength = 230, maxLength = 7000,
+                              minCount = 10, maxCount = 10000, 
+                              subsample = TRUE, nbrSubsample = 30, seed = 1,
+                              minSize = NULL, maxSize = 220, 
+                              verbose = TRUE)
+tx2gene <- readRDS(system.file("extdata/tx2gene.sub.rds", package = "jcc"))
+
+
+```
+
+
+
+
+
+```{r}
+#rm(list=ls())
+library(jcc)
+library(dplyr)
+library(BSgenome.Hsapiens.UCSC.hg38)
+gtf <- '~/NIH/occular_transcriptomes_paper/all_tissues.combined.gtf'
+bam <- '~/NIH/eyeintegration_splicing/testing/E-MTAB-4377.RNA3/Sorted.out.bam'
+gtf_df <- rtracklayer::readGFF(gtf) 
+
+oid2t <- gtf_df %>% filter(type == 'transcript') %>% select(transcript_id, transcript=oId)
+txQuants <- read_tsv('testing/quant/E-MTAB-4377.RNA3/quant.sf') %>% select(transcript=Name, count=NumReads, TPM) %>% inner_join(oid2t) %>% select(-transcript) %>% select(transcript=transcript_id, count, TPM) 
+tx2gene <- gtf_df %>% filter(type == 'transcript') %>% select(tx=transcript_id, gene=gene_id, symbol=gene_name) %>% filter(tx%in% txQuants$transcript)
+
+set.seed(420024)
+t_genes <- tx2gene %>% sample_n(5) %>% pull(gene)
+
+```
+
+```{r}
+a <- Sys.time()
+biasMod <- fitAlpineBiasModel(gtf = gtf, bam = bam, organism = "Homo_sapiens",
+                              genome = Hsapiens, genomeVersion = "hg38",
+                              version = 90, minLength = 230, maxLength = 7000,
+                              minCount = 10, maxCount = 10000, 
+                              subsample = TRUE, nbrSubsample = 30, seed = 1,
+                              minSize = NULL, maxSize = 220, 
+                              verbose = TRUE)
+
+
+predCovProfiles <- predictTxCoverage(biasModel = biasMod$biasModel, 
+                                     exonsByTx = biasMod$exonsByTx, 
+                                     bam = bam, tx2gene = tx2gene, 
+                                     genome = Hsapiens,
+                                     genes = t_genes, 
+                                     nCores = 6, verbose = TRUE)
+
+
+txsc <- scaleTxCoverages(txCoverageProfiles = predCovProfiles, 
+                         txQuants = txQuants, tx2gene = tx2gene,
+                         strandSpecific = TRUE, methodName = "Salmon", 
+                         verbose = TRUE)
+
+jcov <- read.delim('testing/E-MTAB-4377.RNA3/raw.SJ.out.tab',
+                   header = FALSE, as.is = TRUE) %>%
+  setNames(c("seqnames", "start", "end", "strand", "motif", "annot",
+             "uniqreads", "mmreads", "maxoverhang")) %>% 
+  dplyr::mutate(strand = replace(strand, strand == 1, "+")) %>%
+  dplyr::mutate(strand = replace(strand, strand == 2, "-")) %>%
+  dplyr::select(seqnames, start, end, strand, uniqreads, mmreads) %>%
+  dplyr::mutate(seqnames = as.character(seqnames))
+
+
+combCov <- combineCoverages(junctionCounts = jcov, 
+                            junctionPredCovs = txsc$junctionPredCovs,
+                            txQuants = txsc$txQuants)
+
+jcc <- calculateJCCScores(junctionCovs = combCov$junctionCovs, 
+                          geneQuants = combCov$geneQuants)
+
+b <- Sys.time()
+
+jcc$junctionCovs %>% View
+jcc$geneScores %>% View
+
+
+```
+
+
+

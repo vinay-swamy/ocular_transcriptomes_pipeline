@@ -4,12 +4,14 @@ library(parallel)
 #args <- c('~/NIH/eyeintegration_splicing/', 'data/quant_files', 'sampleTableDev.tsv','testing/all_tissues.tracking', 'testing/qout.tsv', 'testing/tcontab.tsv')
 args <- commandArgs(trailingOnly = T)
 wd <- args[1]
-quant_path <- args[2]
-sample_table_file <- args[3]
-track_file <- args[4]
-out_quant_table <- args[5]
+sample_table_file <- args[2]
+track_file <- args[3]
+raw_gtf_file <- args[4]
+ref_gtf_file <- args[5]
 TCONS_to_MSTRG_file <- args[6]
+out_gtf_file <- args[7]
 
+source('~/scripts/write_gtf.R')
 nm_col <- function(col){
     col=col[col!='-']
     name=str_split(col[1], ':|\\|')[[1]][2] %>% str_split('_MSTRG') %>% .[[1]] %>% .[1]
@@ -50,26 +52,6 @@ process_columns <- function(tab,col_name){
     return(list(simple=tx_simple, comp=tx_comp))
 }
 
-read_salmon <- function(qdir,tissue){
-    qfiles <- list.files(paste(qdir, tissue, sep = '/'), pattern = 'quant.sf', recursive = T, full.names = T)
-    name_idx <- str_split(qfiles[1], '/')[[1]] %>% grep('quant.sf', .) %>% {. -1}
-    names <- str_split(qfiles,'/') %>% sapply(function(x) x[name_idx])
-    txi <- tximport::tximport(files=qfiles, type='salmon', txOut = T, countsFromAbundance = 'lengthScaledTPM')
-    colnames(txi$counts) <- names
-    counts <- txi$counts %>% as.data.frame %>% mutate(!!tissue:=rownames(.)) %>% select(!!tissue, everything())
-}
-
-process_salmon_complex <- function(path, tissue){
-    quant <- suppressMessages(read_salmon(quant_path,tissue))
-    quant_simple <- inner_join(tc2mstrg_simple %>% select(transcript_id, !!tissue),quant )
-    multi_map <- tc2mstrg_complex[[tissue]]
-    which_max_exp <- multi_map %>% inner_join(quant) %>% mutate(avg_exp=rowSums(.[,-(1:2)])) %>% group_by(transcript_id) %>%
-        do(.[which.max(.$avg_exp), tissue])
-    quant_comp <- inner_join(which_max_exp, quant)
-    return(list(quant=bind_rows(quant_simple, quant_comp) %>% select(- !!tissue), comp=which_max_exp ))
-}
-
-
 
 setwd(wd)
 sample_table <- read_tsv(sample_table_file)
@@ -80,13 +62,32 @@ colnames(track_tab) <- names
 cn <- colnames(track_tab)[-(1:2)]
 tcons2mstrg <- mclapply(cn, function(col) process_columns(track_tab,col), mc.cores = 8)
 tc2mstrg_simple <- lapply(tcons2mstrg, function(x) x[['simple']]) %>% reduce(full_join)
-tc2mstrg_complex <-lapply(tcons2mstrg, function(x) x[['comp']])
-
-all_quant <- mclapply(tissues, function(x) suppressMessages(read_salmon(quant_path, x)), mc.cores = 8)
 
 
-tis_cols_idx <- ncol(tc2mstrg_simple)
-complete_quant <- reduce(all_quant, left_join, .init = tc2mstrg_simple) %>% .[,-(2:tis_cols_idx)]
-save(complete_quant, file = out_quant_table)
-save(tc2mstrg_complex, file='data/misc/multi_mapping_transcripts.Rdata')
-write_tsv(tc2mstrg_simple, TCONS_to_MSTRG_file)
+gfc_gtf <- rtracklayer::readGFF(raw_gtf_file)
+ref_gtf <- rtracklayer::readGFF(ref_gtf_file)
+ref_gtf_tx <- ref_gtf_tx %>% filter(type == 'transcript') %>% select(seqid, strand, start, end)
+gfcgtf_reftx_absmatch <- gfc_gtf %>% filter(type  == 'transcript', class_code == '=') %>% 
+    select(seqid, strand, start, end, transcript_id) %>% inner_join(ref_gtf_tx) %>% pull(transcript_id)
+targ <- gfc_gtf$transcript_id == 'transcript' & class_code == '='
+gfc_gtf$class_code[targ] <- '*'
+modify <- gfc_gtf$transcript_id %in% gfcgtf_reftx_absmatch & class_code == '*'
+gfc_gtf$class_code[modify] <- '='
+
+tc2oid <- gfc_gtf %>% filter(type == 'transcript') %>% 
+    mutate(new_id=replace(transcript_id, class_code == '=', cmp_ref[class_code == '='])) %>% 
+    select(transcript_id, new_id, class_code, gene_name, oId)
+final_gtf <- gfc_gtf %>% select(-class_code, -gene_name, -oId) %>% left_join(tc2oid) %>% select(-transcript_id) %>% 
+    rename(transcript_id=new_id)
+
+tcons2mstrg_complete <- tc2oid %>% select(transcript_id, new_id) %>% left_join(tc2mstrg_simple, .) %>% 
+    select(-transcript_id) %>% rename(transcript_id=new_id) %>% select(transcript_id, everything())
+write_tsv(tcons2mstrg_complete, TCONS_to_MSTRG_file)
+write_gtf3(final_gtf, out_gtf_file)
+
+
+
+
+
+
+

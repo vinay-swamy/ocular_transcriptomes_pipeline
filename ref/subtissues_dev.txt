@@ -1,0 +1,10 @@
+Brain-Amygdala
+Lung
+Skin-SunExposedLowerleg
+Adipose-Subcutaneous
+Liver
+Brain-Substantianigra
+Brain-Nucleusaccumbensbasalganglia
+Retina_Adult.Tissue
+RPE_Fetal.Tissue
+Retina_Fetal.Tissue

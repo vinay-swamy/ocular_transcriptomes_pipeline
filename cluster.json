@@ -46,9 +46,15 @@
 		"mem" : "48g",
 		"time" : "10:00:00"
 	},
-	"aggregate_salmon_counts_and_filter_gtf" :
+        "merge_all_salmon_quant":
+        {
+                "mem" : "100g",
+                "time" : "10:00:00"
+        },
+
+	"clean_master_gtf_write_filtered_tissue_gtfs" :
 	{
-		"mem" : "48g"
+		"mem" : "100g"
 	},
 	"runrMATS" :
 	{

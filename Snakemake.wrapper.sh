@@ -5,6 +5,7 @@
 
 module load snakemake/5.4.4 || exit 1
 
+rm -rf 00log
 mkdir -p 00log
 
 sbcmd="sbatch --cpus-per-task={cluster.cpus-per-task} \

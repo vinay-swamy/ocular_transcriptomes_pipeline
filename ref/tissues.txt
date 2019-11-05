@@ -26,5 +26,4 @@ Spleen
 Stomach
 synth
 Thyroid
-tissue
 WholeBlood

@@ -1,0 +1,133 @@
+---
+title: "Correlation between transcript detection and splicing"
+output: html_notebook
+---
+
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '~/NIH/')
+```
+
+
+
+```{r}
+library(tidyverse)
+tcons2mstrg <- read_tsv('eyeintegration_splicing/dl_data/gfc_TCONS_to_st_MSTRG.tsv.gz')
+load('occular_transcriptomes_paper/clean_data/V1_exon_classification_data.Rdata')
+psi_file <- read_tsv('eyeintegration_splicing/dl_data/all_tissues_psi.tsv.gz')
+colnames(psi_file) <- str_remove(colnames(psi_file), '_psi')
+full_gtf <- rtracklayer::readGFF('occular_transcriptomes_paper/all_tissues.combined.gtf')
+sample_table <- read_tsv('eyeintegration_splicing/sampleTableV6.tsv') %>% filter(sample %in% colnames(psi_file))
+gdata::keep(tcons2mstrg, psi_file, full_gtf, sample_table, novel_exons_TSES, sure = T)
+```
+It may not be significant in this set, but how does construction of novel transcripts correlation with PSI?
+How does it correleate with expression?
+
+
+
+```{r}
+s_tissue <- 'Retina_Fetal.Tissue'
+ctab <- tcons2mstrg %>% select(transcript_id, !!s_tissue) %>% filter(!is.na(.[,s_tissue]))
+exons_in_tissue <- full_gtf %>% filter(transcript_id %in% ctab$transcript_id) %>% 
+    select(seqid, strand, start, end) %>% distinct
+novel_exons_in_tissue_splicing <- novel_exons_TSES %>% inner_join(exons_in_tissue) %>% 
+    filter(!nv_type_rc %in% c( 'novel_TES', 'novel_TSS'))
+psi_tissue <- filter(sample_table, subtissue == s_tissue) %>% pull(sample) %>% 
+    {select(psi_file, seqid, strand, start, end, .)} %>% mutate( start=start+1) %>% 
+    inner_join(novel_exons_in_tissue_splicing,.)
+meta_cols <- colnames(novel_exons_in_tissue_splicing)
+psi_only <- psi_tissue %>% select(-meta_cols)
+not_det <- psi_only %>% apply(2, is.na) %>% {rowSums(.) == ncol(.) }
+psi_tissue_det <- psi_tissue %>% filter(!not_det) %>% mutate(avg_psi= select(., -meta_cols) %>% rowMeans())
+```
+
+Percetnage of novel exons that should be associated with splicing that are detected by rMATs
+```{r}
+nrow(psi_tissue_det)/nrow(novel_exons_in_tissue_splicing)
+```
+Lets define an expressed exon as an avg psi>=.25, ie being used at least a quater of the time 
+```{r}
+MIN_PSI <- .1
+psi_tissue_det %>% filter(avg_psi >= MIN_PSI) %>% nrow %>% { . /nrow(novel_exons_in_tissue_splicing)}
+```
+
+```{r}
+summarise_splicing <- function(s_tissue){
+    ctab <- tcons2mstrg %>% select(transcript_id, !!s_tissue) %>% filter(!is.na(.[,s_tissue]))
+    exons_in_tissue <- full_gtf %>% filter(transcript_id %in% ctab$transcript_id) %>% 
+        select(seqid, strand, start, end) %>% distinct
+    novel_exons_in_tissue_splicing <- novel_exons_TSES %>% inner_join(exons_in_tissue) %>% 
+        filter(!nv_type_rc %in% c( 'novel_TES', 'novel_TSS'))
+    psi_tissue <- filter(sample_table, subtissue == s_tissue) %>% pull(sample) %>% 
+        {select(psi_file, seqid, strand, start, end, .)} %>% mutate( start=start+1) %>% 
+        inner_join(novel_exons_in_tissue_splicing,.)
+    meta_cols <- colnames(novel_exons_in_tissue_splicing)
+    psi_only <- psi_tissue %>% select(-meta_cols)
+    not_det <- psi_only %>% apply(2, is.na) %>% {rowSums(.) == ncol(.) }
+    psi_tissue_det <- psi_tissue %>% filter(!not_det) %>% mutate(avg_psi= select(., -meta_cols) %>% rowMeans())
+    tibble(num_const_exons=nrow(novel_exons_in_tissue_splicing), num_det_rmats=nrow(psi_tissue_det),
+           num_exp_psi=psi_tissue_det %>% filter(avg_psi >= MIN_PSI ) %>% nrow)
+}
+subtissues <- filter(sample_table, !subtissue %in%c('Cornea_Fetal.Tissue', 'synth')) %>% pull(subtissue) %>% unique
+splicing_sum <- lapply(subtissues, summarise_splicing) %>% bind_rows %>% mutate(subtissue=subtissues) %>% 
+    select(subtissue,everything())
+
+```
+
+
+```{r}
+splicing_sum %>% mutate(percent_exp=num_exp_psi/num_const_exons) %>% as_tibble
+```
+
+
+
+
+```{r}
+gtf_exons <- filter(full_gtf, type == "exon") %>% 
+    select(seqid, strand, start, end, exon_number) %>% distinct
+k <- left_join(novel_exons_TSES, gtf_exons) %>% filter(exon_number == 1) 
+k$nv_type_rc %>% table %>% as_tibble
+
+
+```
+
+```{r}
+library(ggpubr)
+summarise_splicing_not_found <- function(s_tissue){
+    ctab <- tcons2mstrg %>% select(transcript_id, !!s_tissue) %>% filter(!is.na(.[,s_tissue]))
+    exons_in_tissue <- full_gtf %>% filter(transcript_id %in% ctab$transcript_id) %>% 
+        select(seqid, strand, start, end) %>% distinct
+    novel_exons_in_tissue_splicing <- novel_exons_TSES %>% inner_join(exons_in_tissue) %>% 
+        filter(!nv_type_rc %in% c( 'novel_TES', 'novel_TSS'))
+    psi_tissue <- filter(sample_table, subtissue == s_tissue) %>% pull(sample) %>% 
+        {select(psi_file, seqid, strand, start, end, .)} %>% mutate( start=start+1) %>% 
+        inner_join(novel_exons_in_tissue_splicing,.)
+    meta_cols <- colnames(novel_exons_in_tissue_splicing)
+    psi_only <- psi_tissue %>% select(-meta_cols)
+    not_det <- psi_only %>% apply(2, is.na) %>% {rowSums(.) == ncol(.) }
+    psi_tissue_det <- psi_tissue %>% filter(!not_det) %>% mutate(avg_psi= select(., -meta_cols) %>% rowMeans())
+    psi_tissue_det %>% filter(avg_psi < MIN_PSI ) %>% pull(nv_type_rc) %>% table 
+}
+not_det_splicing_types <- lapply(subtissues, summarise_splicing_not_found)
+k <-  not_det_splicing_types %>% do.call(rbind, .) %>% as_tibble() %>% gather(event_type, misclassed_events)
+ggboxplot(k, x='event_type', y='misclassed_events', color = 'event_type', add = 'jitter') + 
+    stat_compare_means(label.y = 700)+
+    stat_compare_means(ref.group = '.all.', method.args =list(alternative = 'greater'), 
+                       label.y = 600)
+    
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

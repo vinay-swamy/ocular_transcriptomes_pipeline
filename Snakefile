@@ -56,13 +56,6 @@ def subtissue_to_gtf(subtissue, sample_dict):
     return (res)
 
 
-def subtissue_to_sample_all( sample_dict):
-    res=[]
-    for sample in sample_dict.keys():
-        subtissue=sample_dict[sample]['subtissue']
-        res.append(f'data/rawST_tx_quant_files/{subtissue}/{sample}/quant.sf')
-    return(res)
-
 def salmon_input(id,sample_dict,fql):
     paired=sample_dict[id]['paired']
     id= fql + 'fastq_files/' + id
@@ -71,22 +64,11 @@ def salmon_input(id,sample_dict,fql):
     else:
         return('-r {}.fastq.gz'.format(id))
 
-def build_subtissue_lookup(subtissue, build=''):
-    return f'data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
 
-def merge_cutoff(subtissue, sample_dict):
-    count=0
-    #if subtissue == 'Retina_Adult.Tissue': #see notebook on strintie cutoff for
-    #    subtissue ='Retina_Fetal.Tissue'
-    for sample in sample_dict.keys():
-        if sample_dict[sample]['subtissue'] == subtissue:
-            count+=1
-    if subtissue == 'Retina_Adult.Tissue':
-        return(count/4)
-    else:
-        return(count/2)
-
-
+def subtissue_to_sample(subtissue, sample_dict):
+    res=[]
+    [res.append(f'data/salmon_quant/{subtissue}/{sample}/quant.sf') for sample in sample_dict.keys() if sample_dict[sample]['subtissue'] == subtissue ]
+    return(res)
 
 
 
@@ -271,14 +253,8 @@ rule filter_sample_gtf:
         stringtie --merge -T 1 -F0 {input} > {output}
         '''
 
-'''
-ToDo
- merge_gtfs_by_tissue - change label to tissue
- filter_tissue_gtfs_gffcompare - output gtf should have ENST id's for transcript for salmonvar step
 
 
-
-'''
 
 rule merge_gtfs_by_tissue:
     input:lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
@@ -299,7 +275,7 @@ rule filter_tissue_gtfs_gffcompare:
         '''
 
 rule make_tx_fasta:
-    input: tool='gffread/gffread',gtf= lambda wildcards: f'data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf
+    input: tool='gffread/gffread',gtf= lambda wildcards: f'data/gtfs/raw_tissue_gtfs/{wildcards.subtissue}.gfcfilt.gtf'
     output: 'data/seqs/{subtissue}_tx.fa'
     shell:
         '''
@@ -356,7 +332,7 @@ rule merge_tissue_gtfs:
 
 
 rule clean_tissue_gtfs_clean_salmon_quant:
-    input:tissue_gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',  salmon_quant= lambda wildcards: subtissue_to_sample(wildcard.subtissue,  sample_dict), tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
+    input:tissue_gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',  salmon_quant= lambda wildcards: subtissue_to_sample(wildcards.subtissue,  sample_dict), tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
     params: quant_path=lambda wildcards: f'data/salmon/{wildcards.subtissue}'
     output:gtf='data/gtfs/final_gtfs/{subtissue}.gtf', exp_file='data/exp_files/{subtissue}.Rdata'
     shell:

@@ -10,19 +10,25 @@ raw_gtf_file <- args[4]
 ref_gtf_file <- args[5]
 TCONS_to_MSTRG_file <- args[6]
 out_gtf_file <- args[7]
-save(args, file='/tmp/smoobargs.rdata')
+#save(args, file='/tmp/smoobargs.rdata')
 source('~/scripts/write_gtf.R')
-nm_col <- function(col){
-    col=col[col!='-']
-    name=str_split(col[1], '_0|\\|')[[1]][3] %>% str_split('_MSTRG') %>% .[[1]] %>% .[1]
-    return(name)
-}
+# nm_col <- function(col){
+#     col=col[col!='-']
+#     name=str_split(col[1], '_0|\\|')[[1]][3] %>% str_split('_MSTRG') %>% .[[1]] %>% .[1]
+#     return(name)
+# }
 
-get_col_slow <- function(tissue){
-    k <- apply(track_tab[,-(1:4)], 2, function(x) x[x!='-'] %>% any(grepl(tissue, .)))
-    stopifnot(length(k) > 1)
-    names[which(k)] <- tissue
-}
+nm_col_clean <- function(col){
+    raw_name <- col %>% .[.!='-'] %>% .[!grepl('ENST', .)] %>% head
+    name <- str_split(raw_name, '\\|')[[1]][2] %>% str_split('_0') %>% .[[1]] %>% .[1]
+}#slightly slower version of nm_col, but works for all cases
+
+
+# get_col_slow <- function(tissue){
+#     k <- apply(track_tab[,-(1:4)], 2, function(x) x[x!='-'] %>% any(grepl(tissue, .)))
+#     stopifnot(length(k) > 1)
+#     names[which(k)] <- tissue
+# }
 
 process_columns <- function(tab,col_name){
     print(col_name)
@@ -63,29 +69,15 @@ setwd(wd)
 sample_table <- read_tsv(sample_table_file)
 track_tab <- read_tsv(track_file, col_names = F) 
 tissues <- unique(sample_table$subtissue)
-names <- c('transcript_id', 'gene_id','refid', 'class_code',  apply(track_tab[,-(1:4)], 2, nm_col))
-#this is for weird cases where the first transcript built is not a novel transcript, which currently is only Lens
-#basically, search the columns of track tab for the missing tissues in names, and then replace names 
-#where its supposed to  go. Not th ebest solution, and should be changed 
-if(sum(!tissues %in% names) !=0){
-    get_col_slow <- function(tissue){
-        k <- apply(track_tab[,-(1:4)], 2, function(x) x[x!='-'] %>% any(grepl(tissue, .)))
-        stopifnot(length(k) > 1)
-        return(k)
-    }
-    
-    for( i in tissues[!tissues %in% names ]) {
-        j=get_col_slow(i)
-        names[names(which(j))] <- i
-    }
-}
+names <- c('transcript_id', 'gene_id','refid', 'class_code',  apply(track_tab[,-(1:4)], 2, nm_col_clean))
+
+stopifnot(sum(!tissues %in% names) == 0)#check
 
 colnames(track_tab) <- names
 cn <- colnames(track_tab)[-(1:4)]
 tcons2mstrg <- mclapply(cn, function(col) process_columns(track_tab,col), mc.cores = 8)
 tc2mstrg_simple <- lapply(tcons2mstrg, function(x) x[['simple']]) %>% reduce(full_join)
 
-save.image('/tmp/poopy.Rdata')
 gfc_gtf <- rtracklayer::readGFF(raw_gtf_file)
 ref_gtf <- rtracklayer::readGFF(ref_gtf_file)
 ref_gtf_tx <- ref_gtf %>% filter(type == 'transcript') %>% select(seqid, strand, start, end)

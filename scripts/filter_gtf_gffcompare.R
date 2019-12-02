@@ -1,13 +1,15 @@
 library(tidyverse)
-args <- c('~/NIH/dev_eyeintegration_splicing/','~/NIH/eyeintegration_splicing/testing/Retina_Adult.Tissue.combined.gtf',
-          '~/NIH/dev_eyeintegration_splicing/ref/gencode_comp_ano.gtf',
-          '~/NIH/eyeintegration_splicing/testing/Retina_Adult.Tissue.tracking',
-          'Retina_Adult.Tissue',
-          '/Volumes/data/eyeintegration_splicing/sampleTableV6.tsv',
-          'tout.gtf')
+# args <- c('~/NIH/dev_eyeintegration_splicing/','~/NIH/eyeintegration_splicing/testing/Retina_Adult.Tissue.combined.gtf',
+#           '~/NIH/dev_eyeintegration_splicing/ref/gencode_comp_ano.gtf',
+#           '~/NIH/eyeintegration_splicing/testing/Retina_Adult.Tissue.tracking',
+#           'Retina_Adult.Tissue',
+#           '/Volumes/data/eyeintegration_splicing/sampleTableV6.tsv',
+#           'tout.gtf')
 
 source('~/scripts/write_gtf.R')
+
 args <- commandArgs(trailingOnly = T)
+
 wd <- args[1]
 gtf_file <- args[2]
 ref_gtf_file <- args[3]
@@ -16,7 +18,7 @@ t_tissue <- args[5]
 sample_table_file <- args[6]
 out_gtf_file <- args[7]
 setwd(wd)
-#save(args, file='/tmp/args.Rdata')
+save(args, file='/tmp/args.Rdata')
 nm_col <- function(col){
     col=col[col!='-']
     name=str_split(col[1], '\\.\\d|:|\\|')[[1]][2] %>% str_split('_MSTRG') %>% .[[1]] %>% .[1]
@@ -30,8 +32,11 @@ gtf <- rtracklayer::readGFF(gtf_file)
 ref_gtf <- rtracklayer::readGFF(ref_gtf_file)
 track_tab <- read_tsv(tracking_file, col_names=F)
 names <- c('transcript_id', 'gene_id','refid','code', apply(track_tab[,-(1:4)], 2, nm_col))
+if(any(is.na(names)) ){
+    names[is.na(names)] <- paste0('Q', which(is.na(names)))
+}
 colnames(track_tab) <- names
-track_tab <- track_tab %>% mutate(refid=str_split(refid, '\\|') %>% sapply(function(x)x[2]))
+track_tab <- track_tab %>%select(-contains('Q')) %>%  mutate(refid=str_split(refid, '\\|') %>% sapply(function(x)x[2]))
 det_df <- apply(track_tab[,-(1:4)],2, function(x) x!='-') %>% as.data.frame %>%  bind_cols(track_tab[,1:4],.)
 num_det_df <-det_df %>% mutate(num_det=rowSums(det_df[,-(1:4)])) %>%   
     select(transcript_id, gene_id, refid, code,num_det) 
@@ -46,13 +51,12 @@ sample_Table_studies <- core_tight %>%
     mutate(study_accession= case_when(is.na(study_accession) & tissue == 'RPE' ~ 'OGVFB',
                                       is.na(study_accession) & tissue == 'Retina' ~ 'EMTAB',
                                       T ~ study_accession
-    )) %>% filter(subtissue == t_tissue)
+    )) %>% filter(subtissue == t_tissue, sample %in% colnames(track_tab))
 studies <- unique(sample_Table_studies$study_accession)
 co=3
 
-if(length(studies >=co)){
+if(length(studies) >=co){
     # if there are 3 or more studies, keep tx present in at least 3 of them  
-    print(co)
     det_in_study <- function(study){
         filter(sample_Table_studies, study_accession %in% study) %>% pull(sample) %>% 
             {select(det_df, transcript_id, .)}  %>% { rowSums(.[,-1]) >= 1 }

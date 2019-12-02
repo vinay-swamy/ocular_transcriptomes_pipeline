@@ -230,10 +230,6 @@ SRS389975	y	Brain	Brain-Caudatebasalganglia	Brain-Caudatebasalganglia	Brain
 SRS389976	y	Heart	Heart-LeftVentricle	Heart-LeftVentricle	Body
 SRS390015	y	Brain	Brain-Cortex	Brain-Cortex	Brain
 SRS390022	y	Skin	Skin-SunExposedLowerleg	Skin-SunExposedLowerleg	Body
-SRS390607	n	Cornea	Cornea_Adult.Tissue	Cornea_AdultTissue	Cornea_Adult.Tissue
-SRS390608	n	Cornea	Cornea_Adult.Tissue	Cornea_AdultTissue	Cornea_Adult.Tissue
-SRS390609	n	Cornea	Cornea_Adult.Tissue	Cornea_AdultTissue	Cornea_Adult.Tissue
-SRS390610	n	Cornea	Cornea_Adult.Tissue	Cornea_AdultTissue	Cornea_Adult.Tissue
 SRS402526	n	RPE	RPE_Fetal.Tissue	RPE_FetalTissue	RPE_Fetal.Tissue
 SRS402527	n	RPE	RPE_Fetal.Tissue	RPE_StemCellLine	RPE_Fetal.Tissue
 SRS402528	n	RPE	RPE_Fetal.Tissue	RPE_StemCellLine	RPE_Fetal.Tissue
@@ -495,7 +491,6 @@ SRS627099	y	Brain	Brain-Putamenbasalganglia	Brain-Putamenbasalganglia	Brain
 SRS627113	y	Salivary.Gland	MinorSalivaryGland	MinorSalivaryGland	Body
 SRS627133	y	Blood.Vessel	Artery-Aorta	Artery-Aorta	Body
 SRS627140	y	Nerve	Nerve-Tibial	Nerve-Tibial	Body
-SRS627143	y	Adrenal.Gland	AdrenalGland	AdrenalGland	Body
 SRS627156	y	Skin	Skin-NotSunExposedSuprapubic	Skin-NotSunExposedSuprapubic	Body
 SRS627162	y	Brain	Brain-Cortex	Brain-Cortex	Brain
 SRS627163	y	Blood.Vessel	Artery-Aorta	Artery-Aorta	Body

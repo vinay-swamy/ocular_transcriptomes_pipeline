@@ -10,12 +10,18 @@ raw_gtf_file <- args[4]
 ref_gtf_file <- args[5]
 TCONS_to_MSTRG_file <- args[6]
 out_gtf_file <- args[7]
-
+save(args, file='/tmp/smoobargs.rdata')
 source('~/scripts/write_gtf.R')
 nm_col <- function(col){
     col=col[col!='-']
-    name=str_split(col[1], ':|\\|')[[1]][2] %>% str_split('_MSTRG') %>% .[[1]] %>% .[1]
+    name=str_split(col[1], '_0|\\|')[[1]][3] %>% str_split('_MSTRG') %>% .[[1]] %>% .[1]
     return(name)
+}
+
+get_col_slow <- function(tissue){
+    k <- apply(track_tab[,-(1:4)], 2, function(x) x[x!='-'] %>% any(grepl(tissue, .)))
+    stopifnot(length(k) > 1)
+    names[which(k)] <- tissue
 }
 
 process_columns <- function(tab,col_name){
@@ -55,23 +61,39 @@ process_columns <- function(tab,col_name){
 
 setwd(wd)
 sample_table <- read_tsv(sample_table_file)
-track_tab <- read_tsv(track_file, col_names = F) %>% select(-X3, -X4)
+track_tab <- read_tsv(track_file, col_names = F) 
 tissues <- unique(sample_table$subtissue)
-names <- c('transcript_id', 'gene_id',  apply(track_tab[,-(1:2)], 2, nm_col))
+names <- c('transcript_id', 'gene_id','refid', 'class_code',  apply(track_tab[,-(1:4)], 2, nm_col))
+#this is for weird cases where the first transcript built is not a novel transcript, which currently is only Lens
+#basically, search the columns of track tab for the missing tissues in names, and then replace names 
+#where its supposed to  go. Not th ebest solution, and should be changed 
+if(sum(!tissues %in% names) !=0){
+    get_col_slow <- function(tissue){
+        k <- apply(track_tab[,-(1:4)], 2, function(x) x[x!='-'] %>% any(grepl(tissue, .)))
+        stopifnot(length(k) > 1)
+        return(k)
+    }
+    
+    for( i in tissues[!tissues %in% names ]) {
+        j=get_col_slow(i)
+        names[names(which(j))] <- i
+    }
+}
+
 colnames(track_tab) <- names
-cn <- colnames(track_tab)[-(1:2)]
+cn <- colnames(track_tab)[-(1:4)]
 tcons2mstrg <- mclapply(cn, function(col) process_columns(track_tab,col), mc.cores = 8)
 tc2mstrg_simple <- lapply(tcons2mstrg, function(x) x[['simple']]) %>% reduce(full_join)
 
-
+save.image('/tmp/poopy.Rdata')
 gfc_gtf <- rtracklayer::readGFF(raw_gtf_file)
 ref_gtf <- rtracklayer::readGFF(ref_gtf_file)
-ref_gtf_tx <- ref_gtf_tx %>% filter(type == 'transcript') %>% select(seqid, strand, start, end)
+ref_gtf_tx <- ref_gtf %>% filter(type == 'transcript') %>% select(seqid, strand, start, end)
 gfcgtf_reftx_absmatch <- gfc_gtf %>% filter(type  == 'transcript', class_code == '=') %>% 
     select(seqid, strand, start, end, transcript_id) %>% inner_join(ref_gtf_tx) %>% pull(transcript_id)
-targ <- gfc_gtf$transcript_id == 'transcript' & class_code == '='
+targ <- gfc_gtf$transcript_id == 'transcript' & gfc_gtf$class_code == '='
 gfc_gtf$class_code[targ] <- '*'
-modify <- gfc_gtf$transcript_id %in% gfcgtf_reftx_absmatch & class_code == '*'
+modify <- gfc_gtf$transcript_id %in% gfcgtf_reftx_absmatch & gfc_gtf$class_code == '*'
 gfc_gtf$class_code[modify] <- '='
 
 tc2oid <- gfc_gtf %>% filter(type == 'transcript') %>% 
@@ -84,10 +106,5 @@ tcons2mstrg_complete <- tc2oid %>% select(transcript_id, new_id) %>% left_join(t
     select(-transcript_id) %>% rename(transcript_id=new_id) %>% select(transcript_id, everything())
 write_tsv(tcons2mstrg_complete, TCONS_to_MSTRG_file)
 write_gtf3(final_gtf, out_gtf_file)
-
-
-
-
-
 
 

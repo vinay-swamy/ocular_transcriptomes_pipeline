@@ -8,6 +8,11 @@ notes:
 -the 5.2 version requires specifying directorys in output section of rule iwth directory(). Biowulf currently using 5.1
 -need to make a rule to download all Gencode refs
 
+11/05/19
+    REevesied 
+-09/20/19
+    Revised strategy: merge w/o genome guide with 1 TPM as c/o. quantify with salmon, remove tx with avg count< 1, and high
+    bootstrap variance. filter removed transcripts from gtf, and then requantify. and then merge gtfs together.
 06/10/19 changes
 - I added way to much downstream stuff to the pipeline, assuming that the splicing/trnascriptome stuff was more accurate
   than it actually was, so I removed a lot stuff,  hmmer, converting to b37, getting a gff3, to focus more on improving
@@ -25,6 +30,11 @@ notes:
 -all software versioned in config file
 -added hmmscan protein domain search
 
+-01/22/19
+    - use gffcompare gtf not stringtie-merge gtf because gffcompare is significantly better than stringtie at mapping
+    back to genes. GFFcompare found 20K novel tx vs 18K on st-merge, with the same number of transcript.
+    - at the initial merge step with stringtie, filteing out transcripts with at least 1 tpm in a third of the samples
+
 01/15/19 Changes
 - converted STAR rules into shell from python
 - made outputs more organized
@@ -34,6 +44,19 @@ notes:
 - restructured outputs so things are a little more organized
 - only using paired samples for rmats
 - finally got rid of the shitty salmon command
+-Reminder that STAR makes the bam even if the alignment fails
+-following CHESS paper - run each bam individually through stringtie, then merge to a tissue level, then merge into 1
+ use gffcompare at each meerge step;
+
+-12/14/18
+    -st-merge at at it default tpm cut off did nothing, so now going to do what chess ppl did and filter it at 1tpm per tissue
+
+-12/13/18
+    - tried GFFcompare on all samples first gave 300k tx's but salmon couldn't map to them, so will now use
+      stringtie merge on a per tissue level, which will cut out a lot of transcripts, then merge with gffcompare.
+    - moved gffread > tx into its own rule
+
+
 **************REMEMBER TO CHANGE THE WORKING DIR IN THE CONFIG FILE IF YOU RERUN*********
 '''
 import subprocess as sp
@@ -107,7 +130,7 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input:'data/exp_files/all_tissue_quant.tsv.gz'
+    input:'data/all_tissue_quant.Rdata'
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
@@ -223,22 +246,7 @@ rule run_stringtie:
 
 '''
 ****PART 2**** build Transcriptome, and process
--Reminder that STAR makes the bam even if the alignment fails
--following CHESS paper - run each bam individually through stringtie, then merge to a tissue level, then merge into 1
- use gffcompare at each meerge step;
--12/13/18
-    - tried GFFcompare on all samples first gave 300k tx's but salmon couldn't map to them, so will now use
-      stringtie merge on a per tissue level, which will cut out a lot of transcripts, then merge with gffcompare.
-    - moved gffread > tx into its own rule
--12/14/18
-    -st-merge at at it default tpm cut off did nothing, so now going to do what chess ppl did and filter it at 1tpm per tissue
--01/22/19
-    - use gffcompare gtf not stringtie-merge gtf because gffcompare is significantly better than stringtie at mapping
-    back to genes. GFFcompare found 20K novel tx vs 18K on st-merge, with the same number of transcript.
-    - at the initial merge step with stringtie, filteing out transcripts with at least 1 tpm in a third of the samples
--09/20/19
-    Revised strategy: merge w/o genome guide with 1 TPM as c/o. quantify with salmon, remove tx with avg count< 1, and high
-    bootstrap variance. filter removed transcripts from gtf, and then requantify. and then merge gtfs together.
+
 
 '''
 
@@ -250,7 +258,7 @@ rule filter_sample_gtf:
     shell:
         '''
         module load {stringtie_version}
-        stringtie --merge -T 1 -F0 {input} > {output}
+        stringtie --merge -l {wildcards.sample} -T 1 -F0 {input} > {output}
         '''
 
 
@@ -263,15 +271,19 @@ rule merge_gtfs_by_tissue:
     shell:
         '''
 	    module load {gffcompare_version}
-        gffcompare -r {ref_GTF} -o {params.outdir} {input}
+        gffcompare -r {ref_GTF} -p {wildcards.subtissue} -o {params.outdir} {input}
         '''
+
+'''
+keep only transcripts that are present in samples form at least three different studies, and correct the transcript id so refernce trasncripts have ENST ids, and novel transcirpts have a novel ID
+'''
 rule filter_tissue_gtfs_gffcompare:
     input:gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf',track='data/gtfs/raw_tissue_gtfs/{subtissue}.tracking'
     output:'data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/filter_gtf_gffcompare.R {working_dir} {input.gtf} {ref_GTF} {input.track}{wildcards.subtissue} {sample_file} {output}
+        Rscript scripts/filter_gtf_gffcompare.R {working_dir} {input.gtf} {ref_GTF} {input.track} {wildcards.subtissue} {sample_file} {output}
         '''
 
 rule make_tx_fasta:
@@ -307,6 +319,13 @@ rule run_salmon:
 
 
 
+'''
+Use the variance of salmon quantification to remove transcripts that have a high variability in their quantification
+I noticed that reference transcripts have a much lower variability than novel ones, so we are going to remove anything 
+abouve the 95th percentile of ref quant variance
+
+'''
+
 rule filter_gtf_salmonvar:
     input: salmon_quant= lambda wildcards:subtissue_to_sample(wildcards.subtissue, sample_dict), gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
     params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}'
@@ -317,35 +336,52 @@ rule filter_gtf_salmonvar:
         Rscript scripts/filter_gtf_salmonvar.R {working_dir} {params.quant_path} {input.gtf} {output}
         '''
 
+
+'''
+use gfcompare to combine all tissue specifc gtfs to make the all_tissues.cmobined final gtf, then use the script to parse the tracking table, and fix the transcript id's similar to before.
+
+'''
+
+
 rule merge_tissue_gtfs:
     input: gtfs=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',subtissue=subtissues)
     params: gffc_prefix='all_tissues'
-    output: gffc_gtf='data/gffcomp_dir/all_tissues.combined.gtf', raw_track_file='data/gffcomp_dir/all_tissues.tracking', tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
+    output: gtf='data/gtfs/all_tissues.combined.gtf', raw_track_file='data/gffcomp_dir/all_tissues.tracking', tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
     shell:
         '''
         mkdir -p data/gffcomp_dir
         module load {gffcompare_version}
-        gffcompare -r {ref_GTF} -R -D -o data/gffcomp_dir/{params.gffc_prefix} {input.gtfs}
+        gffcompare -r {ref_GTF} -p DNTX -o data/gffcomp_dir/{params.gffc_prefix} {input.gtfs}
         module load {R_version}
-        Rscript scripts/TCONS_to_tissueMSTRG.R {working_dir} {sample_file} {input.raw_track_file} {output.tx_converter_tab}   
+        Rscript scripts/TCONS_to_tissueMSTRG.R {working_dir} {sample_file} {output.raw_track_file} data/gffcomp_dir/all_tissues.combined.gtf {ref_GTF} {output.tx_converter_tab}  {output.gtf} 
         '''
 
 
+'''
+fix the tissue specific gtfs so they have the all_tissue novel transcript ids(DNTX); make salmon exp Rdata with the new tissue specific gtf
+
+'''
+
 rule clean_tissue_gtfs_clean_salmon_quant:
     input:tissue_gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',  salmon_quant= lambda wildcards: subtissue_to_sample(wildcards.subtissue,  sample_dict), tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
-    params: quant_path=lambda wildcards: f'data/salmon/{wildcards.subtissue}'
+    params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}/'
     output:gtf='data/gtfs/final_gtfs/{subtissue}.gtf', exp_file='data/exp_files/{subtissue}.Rdata'
     shell:
         '''
         module load {R_version}
-        Rscript fix_tissue_gtf_txids_make_expfiles.R {working_dir} {input.tissue_gtf} {wildcards.tissue} {params.quant_path} {input.tx_converter_tab} {output.exp_file} {output.gtf}
+        Rscript scripts/fix_tissue_gtf_txids_make_expfiles.R {working_dir} {input.tissue_gtf} {wildcards.subtissue} {params.quant_path} {input.tx_converter_tab} {output.exp_file} {output.gtf}
         '''
 
+
+'''
+Finally, merge the tissue specific quant into an all tissues quant
+
+'''
 
 rule merge_all_salmon_quant:
     input:expand('data/exp_files/{subtissue}.Rdata', subtissue= subtissues),tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
     params: quant_path='data/rawST_tx_quant_files/'
-    output: 'data/exp_files/all_tissue_quant.tsv.gz'
+    output: 'data/all_tissue_quant.Rdata'
     shell:
         '''
         module load {R_version}
@@ -396,6 +432,13 @@ rule process_rmats_output:
         module load {R_version}
         Rscript scripts/process_rmats_output.R {working_dir} {sample_file} {params.rmats_od} {params.rm_locdir} {output}
         '''
+
+
+'''
+pulled this from the trinnotate pipeline, makes a gff of the of using protein translations
+
+'''
+
 
 rule run_trans_decoder:
     input:'data/seqs/all/all_tissues.combined_tx.fa'

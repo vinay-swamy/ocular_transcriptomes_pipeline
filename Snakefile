@@ -130,7 +130,7 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input:'data/all_tissue_quant.Rdata'
+    input: 'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv'
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
@@ -365,7 +365,7 @@ fix the tissue specific gtfs so they have the all_tissue novel transcript ids(DN
 rule clean_tissue_gtfs_clean_salmon_quant:
     input:tissue_gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',  salmon_quant= lambda wildcards: subtissue_to_sample(wildcards.subtissue,  sample_dict), tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
     params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}/'
-    output:gtf='data/gtfs/final_gtfs/{subtissue}.gtf', exp_file='data/exp_files/{subtissue}.Rdata'
+    output:gtf='data/gtfs/final_gtfs/{subtissue}.gtf', exp_file='data/exp_files/{subtissue}.RDS'
     shell:
         '''
         module load {R_version}
@@ -379,13 +379,13 @@ Finally, merge the tissue specific quant into an all tissues quant
 '''
 
 rule merge_all_salmon_quant:
-    input:expand('data/exp_files/{subtissue}.Rdata', subtissue= subtissues),tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
-    params: quant_path='data/rawST_tx_quant_files/'
+    input:expand('data/exp_files/{subtissue}.RDS', subtissue= subtissues),tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
+    params: quant_path='data/exp_files/'
     output: 'data/all_tissue_quant.Rdata'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/merge_all_salmon_quant.R {working_dir} {params.quant_path} {output}
+        Rscript scripts/merge_salmon_quant.R {working_dir} {params.quant_path} {output}
         '''
 
 '''
@@ -412,7 +412,7 @@ rule preprMats_running:
         '''
 
 rule runrMATS:
-    input: loc='ref/rmats_locs/{subtissue}.rmats.txt',idx='ref/STARindex', gtf='data/gtfs/filtered_tissue/{subtissue}.gtf'
+    input: loc = 'ref/rmats_locs/{subtissue}.rmats.txt', idx = 'ref/STARindex', gtf = 'data/gtfs/final_gtfs/{subtissue}.gtf'
     output: expand('rmats_out/{{subtissue}}/{event}.MATS.JC.txt', event=rmats_events)
     # might have to change read length to some sort of function
     shell:

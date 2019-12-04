@@ -1,6 +1,6 @@
 Pancreas
 RPE_Fetal.Tissue
-ESC_StemCellLine
+ESC_Stem.Cell.Line
 Retina_Adult.Tissue
 RPE_Adult.Tissue
 Brain-Amygdala

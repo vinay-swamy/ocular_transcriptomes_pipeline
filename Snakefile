@@ -441,7 +441,7 @@ pulled this from the trinnotate pipeline, makes a gff of the of using protein tr
 
 
 rule run_trans_decoder:
-    input:'data/seqs/all/all_tissues.combined_tx.fa'
+    input:'data/seqs/all_tissues.combined_tx.fa'
     output:'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3', \
     'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
     shell:

@@ -224,6 +224,16 @@ rule sort_bams:
         samtools index -b {output}
         '''
 
+
+
+rule make_rmats_synth:
+    input: expand(bam_path+'STARbams/{id}/Sorted.out.bam', id=['SRS648866', 'SRS648919','SRS649535','SRS649567','SRS649619','SRS649622','SRS649657'])
+    output:'ref/rmats_locs/synth.rmats.txt'
+    shell:
+        '''
+        cat {input} | tr ' ' ',' > {output}
+        '''
+
 rule calculate_cov:
     input:bam_path+'STARbams/{id}/Sorted.out.bam'
     output: 'coverage_files/{id}/cov.per-base.bed.gz'
@@ -246,8 +256,6 @@ rule run_stringtie:
 
 '''
 ****PART 2**** build Transcriptome, and process
-
-
 '''
 
 
@@ -287,7 +295,7 @@ rule filter_tissue_gtfs_gffcompare:
         '''
 
 rule make_tx_fasta:
-    input: tool='gffread/gffread',gtf= lambda wildcards: f'data/gtfs/raw_tissue_gtfs/{wildcards.subtissue}.gfcfilt.gtf'
+    input: tool = 'gffread/gffread', gtf = lambda wildcards: f'data/gtfs/raw_tissue_gtfs/{wildcards.subtissue}.gfcfilt.gtf' if wildcards.subtissue != 'all_tissues.combined' else 'data/gtfs/all_tissues.combined.gtf'
     output: 'data/seqs/{subtissue}_tx.fa'
     shell:
         '''
@@ -412,14 +420,14 @@ rule preprMats_running:
         '''
 
 rule runrMATS:
-    input: loc = 'ref/rmats_locs/{subtissue}.rmats.txt', idx = 'ref/STARindex', gtf = 'data/gtfs/final_gtfs/{subtissue}.gtf'
+    input: loc = 'ref/rmats_locs/{subtissue}.rmats.txt', idx = 'ref/STARindex', gtf = 'data/gtfs/final_gtfs/{subtissue}.gtf', synthfile='ref/rmats_locs/synth.rmats.txt' 
     output: expand('rmats_out/{{subtissue}}/{event}.MATS.JC.txt', event=rmats_events)
     # might have to change read length to some sort of function
     shell:
         '''
         subtissue={wildcards.subtissue}
         module load {rmats_version}
-        rmats --b1 {input.loc} --b2 ref/rmats_locs/synth.rmats.txt  -t paired  \
+        rmats --b1 {input.loc} --b2 {input.synthfile}  -t paired  \
         --nthread 8  --readLength 130 --gtf {input.gtf} --bi {input.idx} --od rmats_out/$subtissue
         '''
 

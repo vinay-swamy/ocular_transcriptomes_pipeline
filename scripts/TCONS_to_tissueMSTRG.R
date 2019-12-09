@@ -1,7 +1,9 @@
 library(tidyverse)
 library(tximport)
 library(parallel)
-#args <- c('~/NIH/eyeintegration_splicing/', 'data/quant_files', 'sampleTableDev.tsv','testing/all_tissues.tracking', 'testing/qout.tsv', 'testing/tcontab.tsv')
+# args <- c('/Volumes/data/eyeintegration_splicing/','sampleTableFull.tsv' ,'data/gffcomp_dir/all_tissues.tracking',
+#           'data/gffcomp_dir/all_tissues.combined.gtf', 'ref/gencode_comp_ano.gtf', 'testing/t2m.tsv', 'testing/ogtf.gtf')
+
 args <- commandArgs(trailingOnly = T)
 wd <- args[1]
 sample_table_file <- args[2]
@@ -24,11 +26,6 @@ nm_col_clean <- function(col){
 }#slightly slower version of nm_col, but works for all cases
 
 
-# get_col_slow <- function(tissue){
-#     k <- apply(track_tab[,-(1:4)], 2, function(x) x[x!='-'] %>% any(grepl(tissue, .)))
-#     stopifnot(length(k) > 1)
-#     names[which(k)] <- tissue
-# }
 
 process_columns <- function(tab,col_name){
     print(col_name)
@@ -66,7 +63,7 @@ process_columns <- function(tab,col_name){
 
 
 setwd(wd)
-sample_table <- read_tsv(sample_table_file)
+sample_table <- read_tsv(sample_table_file) %>% filter(subtissue != 'synth')
 track_tab <- read_tsv(track_file, col_names = F) 
 tissues <- unique(sample_table$subtissue)
 names <- c('transcript_id', 'gene_id','refid', 'class_code',  apply(track_tab[,-(1:4)], 2, nm_col_clean))
@@ -75,7 +72,7 @@ stopifnot(sum(!tissues %in% names) == 0)#check
 
 colnames(track_tab) <- names
 cn <- colnames(track_tab)[-(1:4)]
-tcons2mstrg <- mclapply(cn, function(col) process_columns(track_tab,col), mc.cores = 8)
+tcons2mstrg <- mclapply(cn, function(col) process_columns(track_tab,col), mc.cores = 6)
 tc2mstrg_simple <- lapply(tcons2mstrg, function(x) x[['simple']]) %>% reduce(full_join)
 
 gfc_gtf <- rtracklayer::readGFF(raw_gtf_file)
@@ -83,19 +80,59 @@ ref_gtf <- rtracklayer::readGFF(ref_gtf_file)
 ref_gtf_tx <- ref_gtf %>% filter(type == 'transcript') %>% select(seqid, strand, start, end)
 gfcgtf_reftx_absmatch <- gfc_gtf %>% filter(type  == 'transcript', class_code == '=') %>% 
     select(seqid, strand, start, end, transcript_id) %>% inner_join(ref_gtf_tx) %>% pull(transcript_id)
-targ <- gfc_gtf$transcript_id == 'transcript' & gfc_gtf$class_code == '='
-gfc_gtf$class_code[targ] <- '*'
-modify <- gfc_gtf$transcript_id %in% gfcgtf_reftx_absmatch & gfc_gtf$class_code == '*'
-gfc_gtf$class_code[modify] <- '='
 
-tc2oid <- gfc_gtf %>% filter(type == 'transcript') %>% 
-    mutate(new_id=replace(transcript_id, class_code == '=', cmp_ref[class_code == '='])) %>% 
-    select(transcript_id, new_id, class_code, gene_name, oId)
-final_gtf <- gfc_gtf %>% select(-class_code, -gene_name, -oId) %>% left_join(tc2oid) %>% select(-transcript_id) %>% 
-    rename(transcript_id=new_id)
 
-tcons2mstrg_complete <- tc2oid %>% select(transcript_id, new_id) %>% left_join(tc2mstrg_simple, .) %>% 
-    select(-transcript_id) %>% rename(transcript_id=new_id) %>% select(transcript_id, everything())
+
+'
+
+NOTE:
+gffcompare marks exact intron chain matches as `=`. This allows for mutliple TSS/TES, some of which may be novel. 
+Therefore, the true exact match tx are those that have `=` as the class code, and start and end at the same location as
+a reference transcript. So I have to extract transcts that have `=` as the code, and 
+
+'
+
+
+
+max_number <- gfc_gtf$transcript_id %>% 
+    unique %>% 
+    str_split('_') %>% 
+    sapply(function(x) x[2]) %>% 
+    as.numeric() %>% 
+    max
+
+tx2code <- gfc_gtf %>% 
+    filter(type == 'transcript') %>% 
+    select(transcript_id,cmp_ref,class_code, oId, gene_name) %>%
+    distinct %>% 
+    mutate(new_cmp_ref=replace(cmp_ref, is.na(cmp_ref), transcript_id[is.na(cmp_ref)]), 
+           new_class_code=case_when(class_code == '=' & transcript_id %in% matchtx ~ '=',
+                                    class_code == '=' & !transcript_id %in% matchtx ~ '*',
+                                    TRUE ~ class_code
+                                    ),
+           new_transcript_id= replace(transcript_id, class_code =='*', 
+                                      paste0('DNTX_0', seq(max_number+1,max_number+1+sum(class_code =='*')) )   
+                                      ),
+           new_gene_name= replace(gene_name, is.na(gene_name), transcript_id[is.na(gene_name)])
+           ) %>% 
+    select(-cmp_ref, -class_code, -gene_name)
+
+column_order <- colnames(gfc_gtf)
+
+final_gtf <- gfc_gtf %>% 
+    select(-oId, -gene_name) %>%  
+    left_join(tx2code) %>% 
+    select(-class_code, -transcript_id, -cmp_ref) %>% 
+    rename(class_code=new_class_code, cmp_ref=new_cmp_ref, 
+           transcript_id=new_transcript_id, gene_name=new_gene_name ) %>% 
+    .[,column_order]
+
+tcons2mstrg_complete <- tx2code %>% select(transcript_id, new_transcript_id, new_class_code) %>% left_join(tc2mstrg_simple,.) %>% 
+    select(-transcript_id) %>% rename(transcript_id=new_transcript_id,class_code= new_class_code ) %>% 
+    select(transcript_id,class_code, everything())
+
+
+
 write_tsv(tcons2mstrg_complete, TCONS_to_MSTRG_file)
 write_gtf3(final_gtf, out_gtf_file)
 

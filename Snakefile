@@ -231,7 +231,7 @@ rule make_rmats_synth:
     output:'ref/rmats_locs/synth.rmats.txt'
     shell:
         '''
-        cat {input} | tr ' ' ',' > {output}
+        echo {input} | tr ' ' ',' > {output}
         '''
 
 rule calculate_cov:

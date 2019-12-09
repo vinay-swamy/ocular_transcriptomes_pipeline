@@ -130,7 +130,7 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input: 'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv'
+    input: 'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 

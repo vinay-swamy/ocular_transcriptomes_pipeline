@@ -14,6 +14,7 @@ sbcmd="sbatch --cpus-per-task={cluster.cpus-per-task} \
 --partition={cluster.partition} \
 --output={cluster.output} \
 --error={cluster.error} \
+--job-name={cluster.name} \
 {cluster.extra}"
 
 

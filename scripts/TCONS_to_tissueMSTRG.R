@@ -88,7 +88,8 @@ gfcgtf_reftx_absmatch <- gfc_gtf %>% filter(type  == 'transcript', class_code ==
 NOTE:
 gffcompare marks exact intron chain matches as `=`. This allows for mutliple TSS/TES, some of which may be novel. 
 Therefore, the true exact match tx are those that have `=` as the class code, and start and end at the same location as
-a reference transcript. So I have to extract transcts that have `=` as the code, and 
+a reference transcript. So I have to extract transcts that have `=` as the code, and changed them to `*`, but the `*`
+changed to `+` as part of a later step.
 
 '
 
@@ -106,8 +107,8 @@ tx2code <- gfc_gtf %>%
     select(transcript_id,cmp_ref,class_code, oId, gene_name) %>%
     distinct %>% 
     mutate(new_cmp_ref=replace(cmp_ref, is.na(cmp_ref), transcript_id[is.na(cmp_ref)]), 
-           new_class_code=case_when(class_code == '=' & transcript_id %in% matchtx ~ '=',
-                                    class_code == '=' & !transcript_id %in% matchtx ~ '*',
+           new_class_code=case_when(class_code == '=' & transcript_id %in% gfcgtf_reftx_absmatch ~ '=',
+                                    class_code == '=' & !transcript_id %in% gfcgtf_reftx_absmatch ~ '*',
                                     TRUE ~ class_code
                                     ),
            new_transcript_id= replace(transcript_id, class_code =='*', 

@@ -130,7 +130,7 @@ stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 win_size=config['window_size']
 
 rule all:
-    input: 'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
+    input:'data/gtfs/all_tissues.combined.gtf', 'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
@@ -359,7 +359,7 @@ rule merge_tissue_gtfs:
         '''
         mkdir -p data/gffcomp_dir
         module load {gffcompare_version}
-        gffcompare -r {ref_GTF} -p DNTX -o data/gffcomp_dir/{params.gffc_prefix} {input.gtfs}
+        gffcompare -r {ref_GTF} --strict-match  -p DNTX -o data/gffcomp_dir/{params.gffc_prefix} {input.gtfs}
         module load {R_version}
         Rscript scripts/TCONS_to_tissueMSTRG.R {working_dir} {sample_file} {output.raw_track_file} data/gffcomp_dir/all_tissues.combined.gtf {ref_GTF} {output.tx_converter_tab}  {output.gtf} 
         '''
@@ -421,19 +421,20 @@ rule preprMats_running:
 
 rule runrMATS:
     input: loc = 'ref/rmats_locs/{subtissue}.rmats.txt', idx = 'ref/STARindex', gtf = 'data/gtfs/final_gtfs/{subtissue}.gtf', synthfile='ref/rmats_locs/synth.rmats.txt' 
-    output: expand('rmats_out/{{subtissue}}/{event}.MATS.JC.txt', event=rmats_events)
+    params: outdir= lambda wildcards: f'data/rmats_out/{wildcards.subtissue}'
+    output: expand('data/rmats_out/{{subtissue}}/{event}.MATS.JC.txt', event=rmats_events)
     # might have to change read length to some sort of function
     shell:
         '''
         subtissue={wildcards.subtissue}
         module load {rmats_version}
         rmats --b1 {input.loc} --b2 {input.synthfile}  -t paired  \
-        --nthread 8  --readLength 130 --gtf {input.gtf} --bi {input.idx} --od rmats_out/$subtissue
+        --nthread 8  --readLength 130 --gtf {input.gtf} --bi {input.idx} --od {params.outdir}
         '''
 
 rule process_rmats_output:
-    input: expand('rmats_out/{sub_tissue}/{event}.MATS.JC.txt', sub_tissue=[x for x in subtissues if x != 'Cornea_Fetal.Tissue'], event= rmats_events)
-    params: rmats_od='rmats_out/', rm_locdir='ref/rmats_locs/'
+    input: expand('data/rmats_out/{sub_tissue}/{event}.MATS.JC.txt', sub_tissue=[x for x in subtissues if x != 'Cornea_Fetal.Tissue'], event= rmats_events)
+    params: rmats_od='data/rmats_out/', rm_locdir='ref/rmats_locs/'
     output: 'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv'
     shell:
         '''
@@ -479,11 +480,25 @@ rule clean_pep:
         '''
                 #python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
 
+'''
+
+have to manually download this from UCSC
+table browser > group=repeats, track=RepeatMasker
+'''
+
 rule catagorize_novel_exons:
     input: gtf=stringtie_full_gtf, gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
+    params: repeats='ref/UCSC_grch38_repats.bed' 
     output: classfile='data/rdata/novel_exon_classification.Rdata', gtfano='data/gtfs/all_tissues.combined_NovelAno.gtf'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/classify_novel_exons.R {working_dir} {stringtie_full_gtf} {sample_file} {input.gff3} {output}
+        module load {bedtools_version}
+        Rscript scripts/classify_novel_exons.R {working_dir} {stringtie_full_gtf} {sample_file} {params.repeats} {input.gff3} {output}
         '''
+
+
+
+# rule make_no_filter_gtf:
+#     input:
+#     output:

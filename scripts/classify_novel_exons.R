@@ -1,18 +1,19 @@
 library(tidyverse)
 library(RBedtools)
 source('~/scripts/write_gtf.R')
-args <- c('~/NIH/dev_eyeintegration_splicing/', '~/NIH/occular_transcriptomes_paper/all_tissues.combined.gtf', 
-          '/Volumes/data/eyeintegration_splicing/sampleTableV6.tsv', 
-          '~/NIH/eyeintegration_splicing/dl_data/all_tissues.combined_transdecoderCDS.gff3.gz',
-          '~/NIH/occular_transcriptomes_paper/data/all_tissues.combined_V1.Rdata',
-          '~/NIH/occular_transcriptome_shiny/all_tissues.combined_NovelAno.gtf')
+# args <- c('/Volumes/data/eyeintegration_splicing/', 'data/gtfs/all_tissues.combined.gtf',
+#           '/Volumes/data/eyeintegration_splicing/sampleTableFull.tsv',
+#           'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3',
+#           '~/NIH/occular_transcriptomes_paper/data/all_tissues.combined_V1.Rdata',
+#           '~/NIH/occular_transcriptome_shiny/all_tissues.combined_NovelAno.gtf')
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
 sample_table_file <- args[3]
-gff3_file <- args[4]
-outfile <- args[5]
-gtf_ano_outfile <- args[6]
+repeat_bed_file <- args[4]
+gff3_file <- args[5]
+outfile <- args[6]
+gtf_ano_outfile <- args[7]
 setwd(working_dir)
 
 if(!file.exists('rdata/all_ref_tx_exons.rdata')){
@@ -21,29 +22,36 @@ if(!file.exists('rdata/all_ref_tx_exons.rdata')){
 gfc_gtf <- rtracklayer::readGFF(gfc_gtf_file)
 
 novel_transcripts <- anti_join(gfc_gtf %>% filter(type == 'exon'), all_exons) %>% 
-  filter(!grepl('TCONS', gene_name)) %>% 
+  filter(!grepl('DNTX', gene_name)) %>% 
   pull(transcript_id) %>% {filter(gfc_gtf, type == 'transcript', transcript_id %in% .)}
-built_ref_tx <- filter(gfc_gtf, type == 'transcript') %>% inner_join(all_transcripts) 
+built_ref_tx <- filter(gfc_gtf, type == 'transcript', class_code == '=') %>% inner_join(all_transcripts) 
 novel_loci <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(class_code =='u')
 
 novel_single_exon_tx <- novel_transcripts$transcript_id %>% {filter(gfc_gtf, transcript_id  %in% .)} %>% group_by(transcript_id) %>%
   summarise(count=n()) %>% filter(count == 2) %>% pull(transcript_id) %>%  {filter(novel_transcripts, transcript_id %in% .)}
 novel_transcripts <- filter(novel_transcripts, !transcript_id %in% novel_single_exon_tx$transcript_id)
 
-# remove novel loci that overlap with known genes
-## Not going to add the 10kb upstream/downstream yet
-novel_loci_bed <- novel_loci %>% filter(type == 'transcript') %>%  mutate(score=999) %>% 
-  select(seqid, start, end, transcript_id, score, strand) %>% from_data_frame %>% RBedtools('sort',i=.)
+# remove novel loci that overlap with known genes, padded 5kb upstream and downstreqam, and overlap known repeat regions
+## 
+pad=5000
+all_transcript_bed <- all_transcripts %>%
+  mutate(score=999, start=start - pad, end= end+pad,start=replace(start, start<0, 0)) %>% 
+  select(seqid, start, end, origin, score, strand) %>% 
+  from_data_frame %>% 
+  RBedtools('sort',  i=.) 
 
-intersect <- all_transcripts %>% mutate(score=999) %>% select(seqid, start, end, origin, score, strand) %>% 
+no_intersect <- novel_loci %>%
+  mutate(score=999) %>% 
+  select(seqid, start, end, transcript_id, score, strand) %>% 
   from_data_frame %>% 
   RBedtools('sort', output = 'stdout', i=.) %>% 
-  RBedtools('intersect',options = '-loj -s',a=novel_loci_bed, b=.  ) %>% 
+  RBedtools('intersect',options = '-v -s', output = 'stdout', a=., b=all_transcript_bed) %>% 
+  RBedtools('intersect', options = '-v -s', a=.,b=repeat_bed_file) %>% 
   to_data_frame
 
 
 
-novel_loci_distinct <- filter(intersect, X8 == -1) %>% pull(X4) %>% {filter(novel_loci, transcript_id %in% .)} 
+novel_loci_distinct <- novel_loci %>% filter(transcript_id %in% no_intersect$X4)
 
 
 novel_exons <- gfc_gtf %>% 
@@ -121,9 +129,10 @@ save(uniq_start_multi_gene,all_exons, all_transcripts, novel_exons_TSES,
 ##this should have: transcript_type:pc, or not pc., exon_coding as well as is.novel exon, 
 ##novel exon type, first or last exon, single exon
 
+
 ### is the novel exon in the cds part 3 -  only check if the novel regions of novel exons are actually in the CDS
 gff3 <- rtracklayer::readGFF(gff3_file) %>% as_tibble %>%
-  mutate(ID=str_extract(ID,'TCONS_[0-9]+|ENSG[0-9]+'), type=as.character(type))
+  mutate(ID=str_extract(ID,'DNTX_[0-9]+|ENSG[0-9]+'), type=as.character(type))
 cds_bed <- gff3 %>% filter(type == 'CDS') %>% 
   group_by(ID) %>% 
   summarise(seqid=first(seqid), strand=first(strand), start=min(start), end=max(end)) %>% 
@@ -170,7 +179,7 @@ single_exons <- gfc_gtf %>% filter(type == 'exon') %>% group_by(transcript_id) %
   filter(count == 1) %>% pull(transcript_id)
 
 complete_gtf <- gfc_gtf %>% 
-  select(-oId, -class_code, -tss_id, -contained_in, -cmp_ref, -cmp_ref_gene) %>% #remove junk
+  select(-oId, -class_code, -tss_id, -contained_in, -cmp_ref) %>% #remove junk
   left_join(tcons2mstrg) %>% #add fixed oId
   mutate(transcript_type= ifelse(transcript_id %in% gff3$ID, 'protein_coding', 'noncoding'), 
          type=as.character(type)) %>% # add transcript type

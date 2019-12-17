@@ -1,10 +1,11 @@
 library(tidyverse)
-# args <- c('~/NIH/dev_eyeintegration_splicing/','~/NIH/eyeintegration_splicing/testing/Retina_Adult.Tissue.combined.gtf',
-#           '~/NIH/dev_eyeintegration_splicing/ref/gencode_comp_ano.gtf',
-#           '~/NIH/eyeintegration_splicing/testing/Retina_Adult.Tissue.tracking',
-#           'Retina_Adult.Tissue',
-#           '/Volumes/data/eyeintegration_splicing/sampleTableV6.tsv',
-#           'tout.gtf')
+args <- c('/Volumes/data/eyeintegration_splicing/',
+          '/Volumes/data/eyeintegration_splicing/data/gtfs/raw_tissue_gtfs/Retina_Adult.Tissue.combined.gtf',
+          '/Volumes/data/eyeintegration_splicing/ref/gencode_comp_ano.gtf',
+          '/Volumes/data/eyeintegration_splicing/data/gtfs/raw_tissue_gtfs/Retina_Adult.Tissue.tracking',
+          'Retina_Adult.Tissue',
+          '/Volumes/data/eyeintegration_splicing/sampleTableFull.tsv',
+          'tout.gtf')
 
 source('~/scripts/write_gtf.R')
 
@@ -54,15 +55,18 @@ sample_Table_studies <- core_tight %>%
     )) %>% filter(subtissue == t_tissue, sample %in% colnames(track_tab))
 studies <- unique(sample_Table_studies$study_accession)
 co=3
-
+nsamp <- sample_table %>% filter(subtissue == t_tissue) %>% nrow 
+nsamp_co <- max(trunc(.1*nsamp), 3)
 if(length(studies) >=co){
     # if there are 3 or more studies, keep tx present in at least 3 of them  
     det_in_study <- function(study){
         filter(sample_Table_studies, study_accession %in% study) %>% pull(sample) %>% 
-            {select(det_df, transcript_id, .)}  %>% { rowSums(.[,-1]) >= 1 }
+            {select(det_df, transcript_id, .)}  %>% { rowSums(.[,-1])}
     }
-    keep <- lapply(studies,det_in_study ) %>% bind_cols() %>% {rowSums(.)  >= co}
-    keep_tx <- filter(det_df, keep) %>% pull(transcript_id)
+    det_by_study <- lapply(studies,det_in_study ) %>% bind_cols() 
+    keep_study <- det_by_study %>% {rowSums(. >=1 )  >= co}
+    keep_nsamp <- det_by_study %>% {rowSums(.) >=nsamp_co }
+    keep_tx <- filter(det_df, keep_study, keep_nsamp) %>% pull(transcript_id)
 }else{
     # these are 2 or less studies -  most of these are gtex samples 
     nstudy=length(studies)

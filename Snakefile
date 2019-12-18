@@ -287,11 +287,12 @@ keep only transcripts that are present in samples form at least three different 
 '''
 rule filter_tissue_gtfs_gffcompare:
     input:gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf',track='data/gtfs/raw_tissue_gtfs/{subtissue}.tracking'
+    params: repeats = 'ref/UCSC_grch38_repats.bed'
     output:'data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/filter_gtf_gffcompare.R {working_dir} {input.gtf} {ref_GTF} {input.track} {wildcards.subtissue} {sample_file} {output}
+        Rscript scripts/filter_gtf_gffcompare.R {working_dir} {input.gtf} {ref_GTF} {input.track} {wildcards.subtissue} {sample_file} {params.repeats} {output}
         '''
 
 rule make_tx_fasta:

@@ -1,8 +1,8 @@
 library(tidyverse)
 library(tximport)
 library(parallel)
-# args <- c('/Volumes/data/eyeintegration_splicing/','sampleTableFull.tsv' ,'data/gffcomp_dir/all_tissues.tracking',
-#           'data/gffcomp_dir/all_tissues.combined.gtf', 'ref/gencode_comp_ano.gtf', 'testing/t2m.tsv', 'testing/ogtf.gtf')
+args <- c('/Volumes/data/eyeintegration_splicing/','sampleTableFull.tsv' ,'testing/all_tissues_nosm.tracking',
+          'testing/all_tissues_nosm.combined.gtf', 'ref/gencode_comp_ano.gtf', 'testing/t2m.tsv', 'testing/ogtf.gtf')
 
 args <- commandArgs(trailingOnly = T)
 wd <- args[1]
@@ -83,6 +83,9 @@ gfcgtf_reftx_absmatch <- gfc_gtf %>% filter(type  == 'transcript', class_code ==
 
 
 
+k <- tc2mstrg_simple %>% filter(!transcript_id %in% gfcgtf_reftx_absmatch)
+m <- apply(k[,-1], 2,function(x) sum(grepl('ENST', x)))
+
 '
 
 NOTE:
@@ -108,11 +111,11 @@ tx2code <- gfc_gtf %>%
     distinct %>% 
     mutate(new_cmp_ref=replace(cmp_ref, is.na(cmp_ref), transcript_id[is.na(cmp_ref)]), 
            new_class_code=case_when(class_code == '=' & transcript_id %in% gfcgtf_reftx_absmatch ~ '=',
-                                    class_code == '=' & !transcript_id %in% gfcgtf_reftx_absmatch ~ '*',
+                                    class_code == '=' & !transcript_id %in% gfcgtf_reftx_absmatch ~ '~',
                                     TRUE ~ class_code
                                     ),
-           new_transcript_id= replace(transcript_id, class_code =='*', 
-                                      paste0('DNTX_0', seq(max_number+1,max_number+1+sum(class_code =='*')) )   
+           new_transcript_id= replace(transcript_id, class_code =='~', 
+                                      paste0('DNTX_0', seq(max_number+1,max_number+1+sum(class_code =='~')) )   
                                       ),
            new_gene_name= replace(gene_name, is.na(gene_name), transcript_id[is.na(gene_name)])
            ) %>% 

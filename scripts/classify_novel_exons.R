@@ -1,11 +1,13 @@
 library(tidyverse)
 library(RBedtools)
 source('~/scripts/write_gtf.R')
-# args <- c('/Volumes/data/eyeintegration_splicing/', 'data/gtfs/all_tissues.combined.gtf',
-#           '/Volumes/data/eyeintegration_splicing/sampleTableFull.tsv',
-#           'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3',
-#           '~/NIH/occular_transcriptomes_paper/data/all_tissues.combined_V1.Rdata',
-#           '~/NIH/occular_transcriptome_shiny/all_tissues.combined_NovelAno.gtf')
+args <- c('/Volumes/data/eyeintegration_splicing/', 
+          'data/gtfs/all_tissues.combined.gtf',
+          '/Volumes/data/eyeintegration_splicing/sampleTableFull.tsv',
+          '/Volumes/data/eyeintegration_splicing/ref/UCSC_grch38_repats.bed',
+          'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3',
+          '~/NIH/occular_transcriptomes_paper/data/all_tissues.combined_V1.Rdata',
+          '~/NIH/occular_transcriptome_shiny/all_tissues.combined_NovelAno.gtf')
 args <- commandArgs(trailingOnly = T)
 working_dir <- args[1]
 gfc_gtf_file <- args[2]
@@ -179,7 +181,7 @@ single_exons <- gfc_gtf %>% filter(type == 'exon') %>% group_by(transcript_id) %
   filter(count == 1) %>% pull(transcript_id)
 
 complete_gtf <- gfc_gtf %>% 
-  select(-oId, -class_code, -tss_id, -contained_in, -cmp_ref) %>% #remove junk
+  select(-oId, -tss_id, -contained_in, -cmp_ref) %>% #remove junk
   left_join(tcons2mstrg) %>% #add fixed oId
   mutate(transcript_type= ifelse(transcript_id %in% gff3$ID, 'protein_coding', 'noncoding'), 
          type=as.character(type)) %>% # add transcript type

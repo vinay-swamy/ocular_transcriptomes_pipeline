@@ -1,14 +1,14 @@
 library(tidyverse)
 library(RBedtools)
 
-# args <- c('/Volumes/data/eyeintegration_splicing/',
-#           '/Volumes/data/eyeintegration_splicing/data/gtfs/raw_tissue_gtfs/Retina_Adult.Tissue.combined.gtf',
-#           '/Volumes/data/eyeintegration_splicing/ref/gencode_comp_ano.gtf',
-#           '/Volumes/data/eyeintegration_splicing/data/gtfs/raw_tissue_gtfs/Retina_Adult.Tissue.tracking',
-#           'Retina_Adult.Tissue',
-#           '/Volumes/data/eyeintegration_splicing/sampleTableFull.tsv',
-#           '/Volumes/data/eyeintegration_splicing/ref/UCSC_grch38_repats.bed',
-#           'tout.gtf')
+args <- c('/Volumes/data/eyeintegration_splicing/',
+          '/Volumes/data/eyeintegration_splicing/data/gtfs/raw_tissue_gtfs/Pituitary.combined.gtf',
+          '/Volumes/data/eyeintegration_splicing/ref/gencode_comp_ano.gtf',
+          '/Volumes/data/eyeintegration_splicing/data/gtfs/raw_tissue_gtfs/Pituitary.tracking',
+          'Pituitary',
+          '/Volumes/data/eyeintegration_splicing/sampleTableFull.tsv',
+          '/Volumes/data/eyeintegration_splicing/ref/UCSC_grch38_repats.bed',
+          'tout.gtf')
 
 source('~/scripts/write_gtf.R')
 
@@ -22,6 +22,7 @@ t_tissue <- args[5]
 sample_table_file <- args[6]
 repeats_file <- args[7]
 out_gtf_file <- args[8]
+out_det_df_file <- args[9]
 setwd(wd)
 #save(args, file='/tmp/args.Rdata')
 # nm_col <- function(col){
@@ -40,7 +41,7 @@ if(!file.exists('rdata/all_ref_tx_exons.rdata')){
 
 
 
-gtf <- rtracklayer::readGFF(gtf_file)
+gtf <- rtracklayer::readGFF(gtf_file) %>% mutate(strand=ifelse(strand == '-', '-', '+'))
 ref_gtf <- rtracklayer::readGFF(ref_gtf_file)
 track_tab <- read_tsv(tracking_file, col_names=F)
 names <- c('transcript_id', 'gene_id','refid','code', apply(track_tab[,-(1:4)], 2, nm_col_clean))
@@ -98,15 +99,6 @@ if(length(studies) >=co){
     
 }
 
-
-
-
-
-
-
-
-
-
 keep_codes <- c('=','+','c','k','m','n','j', 'u')
 num_det_df_chess_kc <- filter(num_det_df, transcript_id %in% keep_tx, code %in% keep_codes) %>%
     mutate(code = case_when(code == '=' & transcript_id %in% gffc_ref_absmatch ~ '=',
@@ -135,10 +127,12 @@ no_intersect <- novel_loci %>%
     RBedtools('intersect',options = '-v -s', output = 'stdout', a=., b=all_transcript_bed) %>% 
     RBedtools('intersect', options = '-v -s', a=.,b=repeats_file) %>% 
     to_data_frame
-novel_loci_failed <- novel_loci %>% filter(!transcript_id %in% no_intersect$X4) %>% pull(transcript_id)
+novel_loci_distinct <- novel_loci %>% filter(transcript_id %in% no_intersect$X4)
 
-filt_gtf <- filt_gtf %>% filter(!transcript_id %in% novel_loci_failed)
+novel_loci_failed <- novel_loci %>% filter(!transcript_id %in% no_intersect$X4) %>% pull(transcript_id) #transcripts that fail
 
+filt_gtf <- filt_gtf %>% filter(!transcript_id %in% novel_loci_failed) # remove transcripts that fail 
+final_detdf <- det_df %>% filter(!transcript_id %in% novel_loci_failed) # ''  ''
 
 tc2oid <- filt_gtf %>% filter(type == 'transcript') %>% 
     mutate(new_id=replace(transcript_id, class_code == '=', cmp_ref[class_code == '='])) %>% 
@@ -147,7 +141,7 @@ final_gtf <- filt_gtf %>% select(-class_code, -gene_name, -oId) %>% left_join(tc
     rename(transcript_id=new_id)
 
 write_gtf3(final_gtf, out_gtf_file)
-
+write_tsv(final_detdf, out_det_df_file)
 
 
 

@@ -9,7 +9,7 @@ gtf_file<- args[3]
 out_gtf_file <- args[4]
 setwd(wd)
 source('~/scripts/write_gtf.R')
-
+source('~/scripts/read_salmon.R')
 
 #Read in salmon bootstrap variance and identify transcripts to remove.
 
@@ -34,12 +34,22 @@ var_sum <- function(path_to_quant_files){
     ref_medvar <- ref_bs %>% select(-transcript_id) %>% as.matrix %>% rowMedians()
 
     refvar_95 <- quantile(ref_medvar, .95)
-
+    paste('~removed', sum(novel_medvar > refvar_95), 'transcripts based on var' )
     return(filter(novel_bs, novel_medvar > refvar_95) %>% pull(transcript_id))
 }
+
+#TODO
+quant_sum <- function(path_to_quant_files){
+  quant_tab <- read_salmon(path_to_quant_files)
+  remove <- rowSums(quant_tab[,-1]) == 0 # remove transcripts with all 0 counts 
+  print(paste('~removed', sum(removed), 'transcripts based on exp' ))
+  return(quant_tab %>% .[remove, ] %>% pull(transcript_id))
+}
+
 gtf<- rtracklayer::readGFF(gtf_file)
-transcripts_to_remove <- var_sum(path_to_quant_files)
+var_transcripts_to_remove <- var_sum(path_to_quant_files)
+quant_tx_to_remove <- quant_sum(path_to_quant_files)
 #write(x=transcripts_to_remove, file = paste0('data/misc/transcripts_with_high_var',{},'.txt', sep = '\n')
-out_gtf = filter(gtf, !transcript_id %in% transcripts_to_remove)
+out_gtf = filter(gtf, !transcript_id %in% var_transcripts_to_remove, !transcript_id %in% quant_tx_to_remove)
 write_gtf3(out_gtf, out_gtf_file)
 

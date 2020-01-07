@@ -54,7 +54,7 @@ no_intersect <- novel_loci %>%
 
 
 novel_loci_distinct <- novel_loci %>% filter(transcript_id %in% no_intersect$X4)
-
+novel_loci_failed <- novel_loci %>% filter(!transcript_id %in% no_intersect$X4)
 
 novel_exons <- gfc_gtf %>% 
   filter(type == 'exon', !transcript_id %in% novel_loci$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id ) %>%
@@ -181,7 +181,7 @@ single_exons <- gfc_gtf %>% filter(type == 'exon') %>% group_by(transcript_id) %
   filter(count == 1) %>% pull(transcript_id)
 
 complete_gtf <- gfc_gtf %>% 
-  select(-oId, -tss_id, -contained_in, -cmp_ref) %>% #remove junk
+  select(-tss_id, -contained_in, -cmp_ref) %>% #remove junk
   left_join(tcons2mstrg) %>% #add fixed oId
   mutate(transcript_type= ifelse(transcript_id %in% gff3$ID, 'protein_coding', 'noncoding'), 
          type=as.character(type)) %>% # add transcript type

@@ -117,7 +117,7 @@ samtools_version=config['samtools_version']
 gffcompare_version=config['gffcompare_version']
 mosdepth_version=config['mosdepth_version']
 bedtools_version=config['bedtools_version']
-python_env=config['python_env']
+#python_env=config['python_env']
 #commonly used files/paths
 working_dir=config['working_dir']
 STARindex='ref/STARindex'
@@ -127,10 +127,10 @@ ref_genome='ref/gencode_genome.fa'
 fql=config['fastq_path']
 bam_path=config['bam_path']
 stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
-win_size=config['window_size']
+#win_size=config['window_size']
 
 rule all:
-    input:'data/gtfs/all_tissues.combined.gtf', 'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
+    input: 'data/gtfs/all_tissues.combined.gtf', 'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/shiny_data.Rdata'
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
@@ -225,7 +225,7 @@ rule sort_bams:
         '''
 
 
-
+#hand added these synth samples.
 rule make_rmats_synth:
     input: expand(bam_path+'STARbams/{id}/Sorted.out.bam', id=['SRS648866', 'SRS648919','SRS649535','SRS649567','SRS649619','SRS649622','SRS649657'])
     output:'ref/rmats_locs/synth.rmats.txt'
@@ -288,11 +288,11 @@ keep only transcripts that are present in samples form at least three different 
 rule filter_tissue_gtfs_gffcompare:
     input:gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf',track='data/gtfs/raw_tissue_gtfs/{subtissue}.tracking'
     params: repeats = 'ref/UCSC_grch38_repats.bed'
-    output:'data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
+    output: gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf', det_df = 'data/misc/raw_dd/{subtissue}.dd.tsv.gz'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/filter_gtf_gffcompare.R {working_dir} {input.gtf} {ref_GTF} {input.track} {wildcards.subtissue} {sample_file} {params.repeats} {output}
+        Rscript scripts/filter_gtf_gffcompare.R {working_dir} {input.gtf} {ref_GTF} {input.track} {wildcards.subtissue} {sample_file} {params.repeats} {output.gtf} {output.det_df}
         '''
 
 rule make_tx_fasta:
@@ -338,11 +338,11 @@ abouve the 95th percentile of ref quant variance
 rule filter_gtf_salmonvar:
     input: salmon_quant= lambda wildcards:subtissue_to_sample(wildcards.subtissue, sample_dict), gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
     params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}'
-    output:'data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf'
+    output:gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/filter_gtf_salmonvar.R {working_dir} {params.quant_path} {input.gtf} {output}
+        Rscript scripts/filter_gtf_salmonvar.R {working_dir} {params.quant_path} {input.gtf} {output.gtf} 
         '''
 
 
@@ -372,13 +372,13 @@ fix the tissue specific gtfs so they have the all_tissue novel transcript ids(DN
 '''
 
 rule clean_tissue_gtfs_clean_salmon_quant:
-    input:tissue_gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',  salmon_quant= lambda wildcards: subtissue_to_sample(wildcards.subtissue,  sample_dict), tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
+    input:tissue_gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',  salmon_quant= lambda wildcards: subtissue_to_sample(wildcards.subtissue,  sample_dict), tx_converter_tab='data/misc/TCONS2MSTRG.tsv', det_df='data/misc/raw_dd/{subtissue}.dd.tsv.gz'
     params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}/'
-    output:gtf='data/gtfs/final_gtfs/{subtissue}.gtf', exp_file='data/exp_files/{subtissue}.RDS'
+    output:gtf='data/gtfs/final_gtfs/{subtissue}.gtf', exp_file='data/exp_files/{subtissue}.RDS', out_detdf='data/misc/final_dd/{subtissue}.dd.tsv'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/fix_tissue_gtf_txids_make_expfiles.R {working_dir} {input.tissue_gtf} {wildcards.subtissue} {params.quant_path} {input.tx_converter_tab} {output.exp_file} {output.gtf}
+        Rscript scripts/fix_tissue_gtf_txids_make_expfiles.R {working_dir} {input.tissue_gtf} {wildcards.subtissue} {params.quant_path} {input.tx_converter_tab} {input.det_df} {output.exp_file} {output.gtf} {output.out_detdf}
         '''
 
 
@@ -500,6 +500,12 @@ rule catagorize_novel_exons:
 
 
 
-# rule make_no_filter_gtf:
-#     input:
-#     output:
+rule prep_shiny_data:
+    input: ano_gtf = 'data/gtfs/all_tissues.combined_NovelAno.gtf', det_dfs = expand('data/misc/final_dd/{subtissue}.dd.tsv', subtissue=subtissues), tc2m = 'data/misc/TCONS2MSTRG.tsv', all_exp_file='data/all_tissue_quant.Rdata'
+    output:'data/rdata/shiny_data.Rdata'
+    shell:
+        '''
+        module load {R_version}
+        Rscript scripts/prep_data_for_shiny.R {working_dir} {input.ano_gtf} {input.tc2m} {input.all_exp_file} {sample_file} {output}
+
+        '''

@@ -1,13 +1,13 @@
 library(tidyverse)
 library(RBedtools)
 
-args <- c('/Volumes/data/eyeintegration_splicing/',
-          '/Volumes/data/eyeintegration_splicing/data/gtfs/raw_tissue_gtfs/Pituitary.combined.gtf',
-          '/Volumes/data/eyeintegration_splicing/ref/gencode_comp_ano.gtf',
-          '/Volumes/data/eyeintegration_splicing/data/gtfs/raw_tissue_gtfs/Pituitary.tracking',
+args <- c('/Volumes/data/ocular_transcriptomes_pipeline/',
+          '/Volumes/data/ocular_transcriptomes_pipeline/data/gtfs/raw_tissue_gtfs/Pituitary.combined.gtf',
+          '/Volumes/data/ocular_transcriptomes_pipeline/ref/gencode_comp_ano.gtf',
+          '/Volumes/data/ocular_transcriptomes_pipeline/data/gtfs/raw_tissue_gtfs/Pituitary.tracking',
           'Pituitary',
-          '/Volumes/data/eyeintegration_splicing/sampleTableFull.tsv',
-          '/Volumes/data/eyeintegration_splicing/ref/UCSC_grch38_repats.bed',
+          '/Volumes/data/ocular_transcriptomes_pipeline/sampleTableFull.tsv',
+          '/Volumes/data/ocular_transcriptomes_pipeline/ref/UCSC_grch38_repats.bed',
           'tout.gtf')
 
 source('~/scripts/write_gtf.R')
@@ -64,7 +64,7 @@ num_det_df <-det_df %>% mutate(num_det=rowSums(det_df[,-(1:4)])) %>%
 sample_table <- read_tsv(sample_table_file)
 
 load('ref/core_tight.Rdata')
-#load('/Volumes/data/eyeintegration_splicing/ref/core_tight.Rdata')
+#load('/Volumes/data/ocular_transcriptomes_pipeline/ref/core_tight.Rdata')
 sample_Table_studies <- core_tight %>% 
     select(sample=sample_accession, study_accession) %>% distinct %>% left_join(sample_table,.) %>%
     mutate(study_accession= case_when(is.na(study_accession) & tissue == 'RPE' ~ 'OGVFB',
@@ -132,11 +132,15 @@ novel_loci_distinct <- novel_loci %>% filter(transcript_id %in% no_intersect$X4)
 novel_loci_failed <- novel_loci %>% filter(!transcript_id %in% no_intersect$X4) %>% pull(transcript_id) #transcripts that fail
 
 filt_gtf <- filt_gtf %>% filter(!transcript_id %in% novel_loci_failed) # remove transcripts that fail 
-final_detdf <- det_df %>% filter(!transcript_id %in% novel_loci_failed) # ''  ''
+ # ''  ''
 
 tc2oid <- filt_gtf %>% filter(type == 'transcript') %>% 
     mutate(new_id=replace(transcript_id, class_code == '=', cmp_ref[class_code == '='])) %>% 
     select(transcript_id, new_id, class_code, gene_name, oId)
+final_detdf <- det_df %>% filter(!transcript_id %in% novel_loci_failed) %>% inner_join(tc2oid[,c('transcript_id', 'new_id')], .) %>% select(-transcript_id) %>% 
+    rename(transcript_id=new_id)
+
+
 final_gtf <- filt_gtf %>% select(-class_code, -gene_name, -oId) %>% left_join(tc2oid) %>% select(-transcript_id) %>% 
     rename(transcript_id=new_id)
 

@@ -337,7 +337,7 @@ abouve the 95th percentile of ref quant variance
 
 rule filter_gtf_salmonvar:
     input: salmon_quant= lambda wildcards:subtissue_to_sample(wildcards.subtissue, sample_dict), gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
-    params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}'
+    params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}/'
     output:gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf'
     shell:
         '''
@@ -502,10 +502,11 @@ rule catagorize_novel_exons:
 
 rule prep_shiny_data:
     input: ano_gtf = 'data/gtfs/all_tissues.combined_NovelAno.gtf', det_dfs = expand('data/misc/final_dd/{subtissue}.dd.tsv', subtissue=subtissues), tc2m = 'data/misc/TCONS2MSTRG.tsv', all_exp_file='data/all_tissue_quant.Rdata'
+    params: dd_stem='data/misc/final_dd/REPLACE.dd.tsv'
     output:'data/rdata/shiny_data.Rdata'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/prep_data_for_shiny.R {working_dir} {input.ano_gtf} {input.tc2m} {input.all_exp_file} {sample_file} {output}
+        Rscript scripts/prep_data_for_shiny.R {working_dir} {input.ano_gtf} {input.tc2m} {input.all_exp_file} {sample_file} {params.dd_stem} {output}
 
         '''

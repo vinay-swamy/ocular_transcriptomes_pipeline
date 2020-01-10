@@ -21,4 +21,6 @@ bam_path: '/data/swamyvs/ocular_transcriptomes_pipeline/'
 working_dir: '/data/swamyvs/ocular_transcriptomes_pipeline/'
 mosdepth_version: 'mosdepth/0.2.3'
 bedtools_version: 'bedtools/2.27.1'
+hmmer_version: 'hmmer/3.2.1'
+pfam_db: 'ftp://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz'
 

@@ -1,12 +1,12 @@
 library(tidyverse)
 library(matrixStats)
-args <- c('/Volumes/data/ocular_transcriptomes_pipeline/',
-          'data/gtfs/all_tissues.combined_NovelAno.gtf',
-          'data/misc/TCONS2MSTRG.tsv',
-          'data/all_tissue_quant.Rdata',
-          'sampleTableFull.tsv',
-          '/Volumes/data/ocular_transcriptomes_pipeline/data/misc/final_dd/REPLACE.dd.tsv')
-
+# args <- c('/Volumes/data/ocular_transcriptomes_pipeline/',
+#           'data/gtfs/all_tissues.combined_NovelAno.gtf',
+#           'data/misc/TCONS2MSTRG.tsv',
+#           'data/all_tissue_quant.Rdata',
+#           'sampleTableFull.tsv',
+#           '/Volumes/data/ocular_transcriptomes_pipeline/data/misc/final_dd/REPLACE.dd.tsv')
+args <- commandArgs(trailingOnly = T)
 
 working_dir <- args[1]
 gtf_file <- args[2]
@@ -16,7 +16,7 @@ sample_file <- args[5]
 dd_stem <- args[6]
 outfile <- args[7]
 setwd(working_dir)
-
+save(args, file='testing/pdfs_args.Rdata')
 process_det_files <- function(det_file, tissue){
     df <- read_tsv(det_file) %>% select(-refid, -gene_id, -code) %>% select(transcript_id, everything())
     num_det <- df[,-1] %>% rowSums() %>% {tibble(transcript_id=df$transcript_id, !!tissue :=. )} 
@@ -74,7 +74,7 @@ all_quant[is.na(all_quant)] <- 0
 counts_by_tissue <- lapply(subtissues,
                                function(tis) filter(sample_table, subtissue == tis) %>% pull(sample) %>%
                                    {all_quant[,c('transcript_id', .)]} %>%
-                                   mutate(!!tis := rowMedians(.[,-1] %>% as.matrix)) %>%
+                                   mutate(!!tis := rowMeans(.[,-1] %>% as.matrix)) %>%
                                    select(transcript_id, !!tis)
                            ) %>%
     reduce(left_join) %>% inner_join(t2g, .)
@@ -95,17 +95,17 @@ tissue_det <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>
 
 save(gtf, all_det, frac_samp_det, piu, tc2m,tissue_det, file=outfile)
 
-# 
-# keep_tx <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>% rowSums() %>% {. >0} %>% {tc2m[.,'transcript_id']}
-# dev_gtf <- gtf %>% filter(transcript_id %in% keep_tx)
-# dev_frac_det <- frac_samp_det %>% filter(transcript_id %in% keep_tx)
-# dev_all_det <- all_det %>% filter(transcript_id %in% keep_tx)
-# dev_piu <- piu %>% filter(transcript_id %in% keep_tx)
-# dev_tissue_det <- tissue_det %>% filter(transcript_id %in% keep_tx)
-# dev_subtissues <- subtissues
-# dev_gene_names <- unique(dev_gtf$gene_name)
-# save(dev_gtf,dev_frac_det, dev_all_det, dev_piu, dev_tissue_det,dev_gene_names, dev_subtissues, file = '~/NIH/ocular_transcriptomes_shiny/data/numdet.Rdata')
-# 
+
+keep_tx <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>% rowSums() %>% {. >0} %>% {tc2m[.,'transcript_id']}
+dev_gtf <- gtf %>% filter(transcript_id %in% keep_tx)
+dev_frac_det <- frac_samp_det %>% filter(transcript_id %in% keep_tx)
+dev_all_det <- all_det %>% filter(transcript_id %in% keep_tx)
+dev_piu <- piu %>% filter(transcript_id %in% keep_tx)
+dev_tissue_det <- tissue_det %>% filter(transcript_id %in% keep_tx)
+dev_subtissues <- subtissues
+dev_gene_names <- unique(dev_gtf$gene_name)
+save(dev_gtf,dev_frac_det, dev_all_det, dev_piu, dev_tissue_det,dev_gene_names, dev_subtissues, file = 'testing/V2_shinydata.Rdata')
+
 
 
 

@@ -127,10 +127,11 @@ ref_genome='ref/gencode_genome.fa'
 fql=config['fastq_path']
 bam_path=config['bam_path']
 stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
+hmmer_version=config['hmmer_version']
 #win_size=config['window_size']
 
 rule all:
-    input: 'data/gtfs/all_tissues.combined.gtf', 'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/shiny_data.Rdata'
+    input:  'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata',  'data/rdata/shiny_data.Rdata', 'data/novel_loci/hmmer/seq_hits.tsv', 'data/novel_loci/novel_loci_blast_results.tsv'
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
@@ -488,14 +489,15 @@ table browser > group=repeats, track=RepeatMasker
 '''
 
 rule catagorize_novel_exons:
-    input: gtf=stringtie_full_gtf, gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
-    params: repeats='ref/UCSC_grch38_repats.bed' 
-    output: classfile='data/rdata/novel_exon_classification.Rdata', gtfano='data/gtfs/all_tissues.combined_NovelAno.gtf'
+    input: gtf=stringtie_full_gtf, gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3', full_pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
+    params: repeats='ref/UCSC_grch38_repats.bed', novel_loci_txids='data/novel_loci/novel_loci_txids.txt'
+    output: classfile='data/rdata/novel_exon_classification.Rdata', gtfano='data/gtfs/all_tissues.combined_NovelAno.gtf',                   novel_loci_pep='data/novel_loci/novel_loci.pep'
     shell:
         '''
         module load {R_version}
         module load {bedtools_version}
-        Rscript scripts/classify_novel_exons.R {working_dir} {stringtie_full_gtf} {sample_file} {params.repeats} {input.gff3} {output}
+        Rscript scripts/classify_novel_exons.R {working_dir} {stringtie_full_gtf} {sample_file} {params.repeats} {input.gff3} {output.classfile} {output.gtfano} {params.novel_loci_txids}
+        python3 scripts/select_entry_from_fasta.py --infasta {input.full_pep} --txToKeep {params.novel_loci_txids} --outfasta {output.novel_loci_pep}
         '''
 
 
@@ -510,3 +512,38 @@ rule prep_shiny_data:
         Rscript scripts/prep_data_for_shiny.R {working_dir} {input.ano_gtf} {input.tc2m} {input.all_exp_file} {sample_file} {params.dd_stem} {output}
 
         '''
+
+
+rule blastp_novel_loci:
+    input: pep='data/novel_loci/novel_loci.pep'
+    output: results='data/novel_loci/novel_loci_blast_results.tsv'
+    shell:
+        '''
+        module load blast
+        blastp -query {input.pep} -db /fdb/blastdb/swissprot  -max_target_seqs 250 -max_hsps 3 -outfmt 6 -num_threads 8 > {output.results}
+        '''
+
+rule build_pfm_hmmDB:
+     params: url=config['pfam_db']
+     output:'ref/hmmer/Pfam-A.hmm'
+     shell:
+         '''
+         wget -O - {params.url} | gunzip -c - > {output}
+         module load {hmmer_version}
+         hmmpress {output}
+         '''
+
+
+rule run_hmmscan:
+     input: pfam='ref/hmmer/Pfam-A.hmm',  pep='data/novel_loci/novel_loci.pep'
+     output:tab='data/novel_loci/hmmer/seq_hits.tsv',
+         dom='data/novel_loci/hmmer/domain_hits.tsv',
+         pfm='data/novel_loci/hmmer/pfam_hits.tsv'
+     shell:
+         '''
+         module load {hmmer_version}
+         hmmscan --cpu 24 --tblout {output.tab} --domtblout {output.dom} --pfamtblout {output.pfm} {input.pfam} {input.pep}
+         '''
+
+
+

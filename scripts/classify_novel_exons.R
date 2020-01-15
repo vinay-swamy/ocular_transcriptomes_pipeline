@@ -16,6 +16,7 @@ repeat_bed_file <- args[4]
 gff3_file <- args[5]
 outfile <- args[6]
 gtf_ano_outfile <- args[7]
+novel_loci_txid_outfile <- args[8]
 setwd(working_dir)
 
 if(!file.exists('rdata/all_ref_tx_exons.rdata')){
@@ -55,6 +56,9 @@ no_intersect <- novel_loci %>%
 
 novel_loci_distinct <- novel_loci %>% filter(transcript_id %in% no_intersect$X4)
 novel_loci_failed <- novel_loci %>% filter(!transcript_id %in% no_intersect$X4)
+
+write(novel_loci_distinct$transcript_id, file = novel_loci_txid_outfile, sep = '\n')
+
 
 novel_exons <- gfc_gtf %>% 
   filter(type == 'exon', !transcript_id %in% novel_loci$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id ) %>%

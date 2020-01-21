@@ -1,5 +1,8 @@
 library(tidyverse)
 library(matrixStats)
+library(RBedtools)
+library(DBI)
+library(parallel)
 # args <- c('/Volumes/data/ocular_transcriptomes_pipeline/',
 #           'data/gtfs/all_tissues.combined_NovelAno.gtf',
 #           'data/misc/TCONS2MSTRG.tsv',
@@ -14,9 +17,13 @@ tc2m_file <- args[3]
 quant_file <- args[4]
 sample_file <- args[5]
 dd_stem <- args[6]
-outfile <- args[7]
+snps_bed <- args[7]
+phylop_bed <- args[8]
+gff3_file <- args[9]
+out_rdata <- args[10]
+out_db_file <- args[11]
 setwd(working_dir)
-save(args, file='testing/pdfs_args.Rdata')
+#$save(args, file='testing/pdfs_args.Rdata')
 process_det_files <- function(det_file, tissue){
     df <- read_tsv(det_file) %>% select(-refid, -gene_id, -code) %>% select(transcript_id, everything())
     num_det <- df[,-1] %>% rowSums() %>% {tibble(transcript_id=df$transcript_id, !!tissue :=. )} 
@@ -48,10 +55,36 @@ replace_nan <- function(df) {
 
 gtf <- rtracklayer::readGFF(gtf_file)
 gtf <- gtf %>% mutate(new_tx_id= replace(oId, !grepl('ENST', oId), transcript_id[!grepl('ENST', oId)]))
-tc2m <- read_tsv(tc2m_file)
+gff3 <- rtracklayer::readGFF(gff3_file) %>%
+    as_tibble %>%
+    mutate(transcript_id=str_extract(ID,'DNTX_[0-9]+|ENSG[0-9]+'), type=as.character(type)) %>%
+    filter(type == 'CDS')
 sample_table <- read_tsv(sample_file) %>% filter(subtissue != 'synth')
-subtissues <- unique(sample_table$subtissue)[1:5]#ONLY FOR TESTING PURPOSES
+subtissues <- unique(sample_table$subtissue)#
+tc2m <- read_tsv(tc2m_file)
 t2g <- gtf %>% filter(type == 'transcript') %>% select(transcript_id, gene_name,new_tx_id) %>% distinct
+
+unique_exons <- gtf %>% filter(type == 'exon') %>%
+    select(seqid, strand, start, end) %>% distinct %>% 
+    mutate(exon_id = paste0('exon_', 1:nrow(.)))
+
+uexon_bed <- unique_exons %>% mutate(score = 999) %>% select(seqid,start, end, exon_id, score, strand) %>% 
+    from_data_frame %>% RBedtools('sort', i=.)
+#test_bed <- unique_exons %>% sample_n(1000) %>% mutate(score = 999) %>% select(seqid,start, end, exon_id, score, strand)
+#write_tsv(test_bed, '/Volumes/data/ocular_transcriptomes_pipeline/testing/gtf_bed_for_testing.bed', col_names = F)
+
+exon_pp_bed <- RBedtools('intersect', options = '-wa -wb -sorted', output = 'stdout', a=uexon_bed, b=phylop_bed) %>% 
+        RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 11 -o mean',i= .) %>% 
+        to_data_frame %>% 
+        select(exon_id=X4, mean_phylop_score=X7)
+
+
+# intersect with strand specific
+exon_snp_bed <- RBedtools('intersect', options = ' -s -wa -wb -sorted ', output = 'stdout', a=uexon_bed, b=snps_bed) %>% 
+    RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 10 -o collapse ',i= .) %>% 
+    to_data_frame %>% 
+    select(exon_id=X4, snps=X7)
+save(exon_pp_bed, exon_snp_bed, file = 'testing/exons_snps_phylop.Rdata')    
 
 all_det <- lapply(subtissues, function(tis) 
                     gsub(pattern = 'REPLACE', replacement = tis, x = dd_stem) %>% {process_det_files(.,tis)}) %>% 
@@ -85,28 +118,250 @@ piu <-replace_nan(piu_raw)
 
 
 # fix transcript id column
-gtf <- gtf %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id)
+gtf <- gtf %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) %>% left_join(unique_exons)
 frac_samp_det <- frac_samp_det %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id)
 all_det <-  all_det %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id)
 piu <- piu %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id)
 tc2m <- tc2m %>% inner_join(t2g, .) %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id)
 tissue_det <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>% as_tibble %>% bind_cols(tc2m[,1:3],.)
+cds_df <- gff3 %>% inner_join(t2g) %>% select(-transcript_id, -Parent) %>% rename(transcript_id = new_tx_id)
+exon_info_df <- left_join(exon_pp_bed, exon_snp_bed)
 
+#---- precalculating data for ap data for app
+# I wanted to add thick lines to indicate where the CDS of transcripts is, like commonly seen in genome browsers
 
-save(gtf, all_det, frac_samp_det, piu, tc2m,tissue_det, file=outfile)
+## First for each transcript I identify which exon the CDS start is on, and which exon the CDS end is on 
+cds_se <- cds_df %>% filter(type == 'CDS') %>% 
+    group_by(transcript_id) %>% 
+    summarise(seqid=first(seqid), strand=first(strand), cds_start=min(start), cds_end=max(end), gene_name=first(gene_name))
 
+cds_start_bed <- cds_se %>% mutate(end=cds_start + 1, score= 888) %>% 
+    select(seqid, cds_start, end, transcript_id, score, strand) %>% 
+    from_data_frame %>% 
+    RBedtools('sort', i=.)
+cds_end_bed <- cds_se %>% mutate(end=cds_end + 1, score= 999) %>% 
+    select(seqid, cds_end, end, transcript_id, score, strand) %>% 
+    from_data_frame %>% 
+    RBedtools('sort', i=.)
+exon_bed <- gtf %>% filter(type == 'exon') %>% mutate(score= 111) %>%
+    select(seqid, start, end, transcript_id, score, strand) %>% 
+    from_data_frame %>% 
+    RBedtools('sort', i=.)
 
-keep_tx <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>% rowSums() %>% {. >0} %>% {tc2m[.,'transcript_id']}
-dev_gtf <- gtf %>% filter(transcript_id %in% keep_tx)
-dev_frac_det <- frac_samp_det %>% filter(transcript_id %in% keep_tx)
-dev_all_det <- all_det %>% filter(transcript_id %in% keep_tx)
-dev_piu <- piu %>% filter(transcript_id %in% keep_tx)
-dev_tissue_det <- tissue_det %>% filter(transcript_id %in% keep_tx)
-dev_subtissues <- subtissues
-dev_gene_names <- unique(dev_gtf$gene_name)
-save(dev_gtf,dev_frac_det, dev_all_det, dev_piu, dev_tissue_det,dev_gene_names, dev_subtissues, file = 'testing/V2_shinydata.Rdata')
+which_exon_overlaps_start <- RBedtools('intersect', options = '-s -wa -wb', a=exon_bed, b=cds_start_bed) %>% 
+    to_data_frame %>% filter(X4 == X10) %>% select(seqid=X1, start=X2, end=X3, transcript_id=X4, strand=X6) %>% 
+    mutate(is_CDS_start=T)
+which_exon_overlaps_end <- RBedtools('intersect', options = '-s -wa -wb', a=exon_bed, b=cds_end_bed) %>% 
+    to_data_frame %>% filter(X4 == X10) %>% select(seqid=X1, start=X2, end=X3, transcript_id=X4, strand=X6) %>% 
+    mutate(is_CDS_end=T)
 
+gtf <- gtf %>% left_join(which_exon_overlaps_start) %>% left_join(which_exon_overlaps_end) %>% 
+    mutate(is_CDS_start=replace_na(is_CDS_start, F), is_CDS_end=replace_na(is_CDS_end, F))
+## Next, this function scales the genomic lengths for each gene, and adds in thick starts for protein coding transcripts 
+make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_end, which_exon_overlaps_start,  gene){
+    gtf_gene <- filter(gtf, gene_name == gene)
+    cds_se_gene <- filter(cds_se, gene_name == gene)
+    cds_df_gene <- filter(cds_df, gene_name == gene)
+    t_gtf_exons <- filter(gtf_gene, type == 'exon') %>% mutate(length=sqrt(end-start))
+    gap=mean(t_gtf_exons$length)
+    ### only scale distinct exons 
+    scale_intron_lengths <- function(df, scale_factor, ymin, ymax){
+        gtf_exons <- df %>% 
+            select(seqid, strand, start, end) %>% 
+            distinct %>% 
+            mutate(length=end-start, length=sqrt(length), Xmin=0, Xmax=0, Ymin=ymin, Ymax=ymax) %>% 
+            arrange(start)
+        
+        gtf_exons[1,'Xmax'] <- gtf_exons[1,'Xmin'] + gtf_exons[1,'length']
+        if(nrow(gtf_exons) > 1){
+            for(i in 2:nrow(gtf_exons)){
+                gtf_exons[i,'Xmin'] <- gtf_exons[(i-1),'Xmax'] + scale_factor 
+                gtf_exons[i,'Xmax'] <- gtf_exons[i,'Xmin'] + gtf_exons[i,'length']
+            }
+        }
+        return(gtf_exons)
+    }
+    scaled_exons <- scale_intron_lengths(t_gtf_exons, gap,-.5,.5 )
+    #t_tx <- "ENST00000426976.1"
+    ### this adds the thick start for each transcript. For most genes its easy, but there are many corner cases
+    merge_CDS_scaled_exons <- function(gtf_gene, scaled_exons, which_exon_overlaps_start, which_exon_overlaps_end,
+                                       cds_df_gene, cds_se_gene, t_tx){
+        #print(t_tx) 
+        # in order to create thick lines for CDS, we have to first get the CDS locations, and when the start and end 
+        # are in the middle of an exon, split that exon into 2 features.
+        scaled_exons_tx <- filter(gtf_gene, type == 'exon', transcript_id == t_tx) %>% inner_join(scaled_exons)
+        if(any(duplicated(scaled_exons_tx$exon_number)) ){ #in a single transcript no transcript should have the same start or end 
+            
+            write(t_tx, file = 'data/shiny_data/debug/multi_tx_under_same_id.txt', append = T, sep = '\n')# multiple transcripts under same id
+            return(tibble())
+        }
+        cds_df_tx <- filter(cds_df_gene, transcript_id ==t_tx ) %>% select(seqid, strand, start, end)
+        cds_se_tx <- filter(cds_se_gene, transcript_id  == t_tx)
+        which_exon_CDS_start <- which_exon_overlaps_start %>% filter(transcript_id == t_tx)
+        which_exon_CDS_end <-   which_exon_overlaps_end %>% filter(transcript_id == t_tx)
+        # this indicates the transcript id was not found in the CDS df
+        if(nrow(cds_se_tx) == 0){
+            write(t_tx, file = 'data/shiny_data/debug/no_cds_bu_marked_as_pc.txt', append = T, sep = '\n')
+            return(tibble())
+        }
+        # this means we failed to identify which exon the CDS start /end is on int the previous step
+        if(nrow(which_exon_CDS_end) == 0 | nrow(which_exon_CDS_start) == 0){
+            write(t_tx, file = 'data/shiny_data/debug/failed_to_find_CDS_start_or_end.txt', append = T, sep = '\n')
+            return(tibble())
+        }
+        
+        # if the cds starts and ends on the same exon, which is always the case for single exon transcripts 
+        if(nrow(anti_join(which_exon_CDS_start, which_exon_CDS_end)) == 0 ){# if the cds starts and ends on the same exon
+            special_exon <- scaled_exons_tx %>% inner_join(which_exon_CDS_start)
+            if(nrow(cds_se_tx) == 0){
+                write(t_tx, file = 'data/shiny_data/debug/special_is_funky.txt', append = T, sep = '\n')
+                return(tibble())
+            }
+            # the CDS starts/ ends on the exact same location as the exon its on
+            if(special_exon$start == cds_se_tx$cds_start | special_exon$end == cds_se_tx$cds_end){
+                # single exon and CDS are the exact same 
+                if(special_exon$start == cds_se_tx$cds_start & special_exon$end == cds_se_tx$cds_end){
+                    complete_df <- special_exon %>% mutate(Ymin=-1, Ymax =1)  
+                } else if(special_exon$start == cds_se_tx$cds_start){ # both of these are of either the CDS start /end are on the location
+                    #print('here')
+                    cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
+                                                       Xmax= Xmin + sqrt(end-start), 
+                                                       Ymax=1, Ymin=-1)
+                    
+                    split_end_nc_start <- special_exon  %>% mutate(start = cds_se_tx$cds_end+ 1, 
+                                                                   Xmin=cds_mid$Xmax, 
+                                                                   Xmax=Xmin + sqrt(end-start))
+                    complete_df <- bind_rows( cds_mid, split_end_nc_start)
+                    
+                }else{#special_exon$end == cds_se_tx$cds_end
+                    #offset <- (cds_se_tx$cds_start - special_exon$start - 1 )
+                    split_start_nc_end <- special_exon %>% mutate(end= start + offset, Xmax= Xmin + sqrt(end-start))
+                    cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
+                                                       Xmin=split_start_nc_end$Xmax, Xmax= Xmin + sqrt(end-start), 
+                                                       Ymax=1, Ymin=-1)
+                    complete_df <- bind_rows(split_start_nc_end, cds_mid)
+                }
+            }else{
+                offset <- (cds_se_tx$cds_start - special_exon$start - 1 )
+                split_start_nc_end <- special_exon %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
+                cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
+                                                   Xmin=split_start_nc_end$Xmax, Xmax= Xmin + sqrt(end-start), 
+                                                   Ymax=1, Ymin=-1)
+                offset <- special_exon$end - cds_se_tx$cds_end
+                split_end_nc_start <- special_exon  %>% mutate(start = cds_se_tx$cds_end+ 1, 
+                                                               Xmin=cds_mid$Xmax, 
+                                                               Xmax=Xmin + sqrt(offset))
+                
+                
+                
+                complete_df <- bind_rows(split_start_nc_end, cds_mid, split_end_nc_start) %>% arrange(start)
+            }
+            
+            
+            
+            
+            return(complete_df)
+        }
+        
+        both <- bind_rows(which_exon_CDS_start, which_exon_CDS_end)
+        both[is.na(both)] <- F
+        exact_match <-  inner_join(scaled_exons_tx, cds_df_tx) %>% mutate(Ymin=-1, Ymax=1)
+        non_match <- anti_join(scaled_exons_tx, cds_df_tx) %>%  inner_join(both) %>% arrange(start)
+        not_cds <- anti_join(scaled_exons_tx, cds_df_tx) %>%  anti_join(both)
+        
+        # there are three cases for the spliting start and end problem for multi exon CDSs
+        if(nrow(non_match) == 2){
+            # both the start and the end land in the middle of an exon, so we have to adjust both
+            offset <- (cds_se_tx$cds_start - non_match$start[1] -1)
+            split_start_nc_end <- non_match[1,] %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
+            split_start_cds_start <- non_match[1,] %>% mutate(start= start +offset + 1, Xmin = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
+            merged_starts <- bind_rows(split_start_nc_end, split_start_cds_start)
+            
+            
+            offset <- non_match$end[2] - cds_se_tx$cds_end
+            split_end_cds_end <- non_match[2,] %>% mutate(end = start + offset, Xmax = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
+            split_end_nc_start <- non_match[2,] %>% mutate(start = start + offset + 1, Xmin=Xmin + sqrt(offset))
+            merged_ends <- bind_rows(split_end_cds_end, split_end_nc_start)
+            
+            complete_df <- bind_rows(not_cds, exact_match, merged_starts, merged_ends) %>% arrange(start)
+        } else if(nrow(non_match) == 1){
+            #either the start or the end matches perfectly with an exon, and the other is in the middle 
+            start_in_middle <- non_match %>% inner_join(which_exon_CDS_start)
+            end_in_middle <- non_match %>% inner_join(which_exon_CDS_end)
+            if(nrow(start_in_middle)!= 0){
+                offset <- (cds_se_tx$cds_start - non_match$start[1] -1)
+                split_start_nc_end <- non_match[1,] %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
+                split_start_cds_start <- non_match[1,] %>% mutate(start= start +offset + 1, Xmin = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
+                merged <- bind_rows(split_start_nc_end, split_start_cds_start)
+                
+            }else{
+                offset <- non_match$end[1] - cds_se_tx$cds_end
+                split_end_cds_end <- non_match[1,] %>% mutate(end = start + offset, Xmax = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
+                split_end_nc_start <- non_match[1,] %>% mutate(start = start + offset + 1, Xmin=Xmin + sqrt(offset))
+                merged <- bind_rows(split_end_cds_end, split_end_nc_start)
+                
+            }
+            complete_df <- bind_rows(not_cds, exact_match, merged)
+            
+        } else if(nrow(non_match) == 0){
+            #both the start and the end exact match the exons, so nothing to do but bind them all together 
+            complete_df <- bind_rows(not_cds, exact_match)
+        } else {# nothing should ever get here 
+            write(gene,file = 'data/shiny_data/debug/bad_genes.txt', sep = '\n', append = T)
+            return(tibble())
+        }
+        return(complete_df)
+    }
+    PC_tx <- filter(gtf_gene, transcript_type == 'protein_coding') %>% pull(transcript_id) %>% unique
+    res <- lapply(PC_tx, function(tx) merge_CDS_scaled_exons(gtf_gene = gtf_gene, 
+                                                             scaled_exons = scaled_exons, 
+                                                             which_exon_overlaps_start = which_exon_overlaps_start, 
+                                                             which_exon_overlaps_end = which_exon_overlaps_end,
+                                                             cds_df_gene = cds_df_gene, 
+                                                             cds_se_gene = cds_se_gene, 
+                                                             t_tx = tx)) %>% bind_rows()
+    return(res)
+}
 
+all_genes <- gtf %>% pull(gene_name) %>% unique()
+plotting_gtf <- mclapply(all_genes, function(gene) 
+    try(make_plotting_gtf_by_gene(gtf = gtf, cds_df = cds_df, cds_se = cds_se, 
+                                 which_exon_overlaps_end = which_exon_overlaps_end,
+                                 which_exon_overlaps_start = which_exon_overlaps_start,
+                                 gene = gene
+                                 ), outFile = 'data/shiny_data/debug/failed_try.txt' ),mc.cores = 32
+                         ) %>% bind_rows
+
+save(plotting_gtf, file = 'data/shiny_data/plotting_GTF.Rdata')
+#----
+
+con <- dbConnect(RSQLite::SQLite(), out_db_file)
+dbWriteTable(con, 'gtf', gtf)
+dbWriteTable(con, 'frac_samp_det', frac_samp_det)
+dbWriteTable(con, 'all_det', all_det)
+dbWriteTable(con, 'piu', piu)
+dbWriteTable(con, 'tc2m', tc2m)
+dbWriteTable(con, 'tissue_det', tissue_det)
+dbWriteTable(con, 'exon_info_df', exon_info_df)
+dbWriteTable(con, 'cds_df', cds_df)
+dbWriteTable(con, 'plotting_gtf', plotting_gtf)
+dbDisconnect(con)
+all_gene_names <- unique(gtf$gene_name)
+all_tissues <- subtissues 
+#save(gtf, all_det, frac_samp_det, piu, tc2m,tissue_det, file=outfile)
+save(all_gene_names, all_tissues, file = out_rdata)
+
+# keep_tx <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>% rowSums() %>% {. >0} %>% {tc2m[.,'transcript_id']}
+# dev_gtf <- gtf %>% filter(transcript_id %in% keep_tx)
+# dev_frac_det <- frac_samp_det %>% filter(transcript_id %in% keep_tx)
+# dev_all_det <- all_det %>% filter(transcript_id %in% keep_tx)
+# dev_piu <- piu %>% filter(transcript_id %in% keep_tx)
+# dev_tissue_det <- tissue_det %>% filter(transcript_id %in% keep_tx)
+# dev_subtissues <- subtissues
+# dev_gene_names <- unique(dev_gtf$gene_name)
+# save(dev_gtf,dev_frac_det, dev_all_det, dev_piu, dev_tissue_det,dev_gene_names, dev_subtissues, file = 'testing/V2_shinydata.Rdata')
+# 
+# 
 
 
 

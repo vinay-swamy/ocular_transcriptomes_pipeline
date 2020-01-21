@@ -131,7 +131,7 @@ hmmer_version=config['hmmer_version']
 #win_size=config['window_size']
 
 rule all:
-    input:  'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata',  'data/rdata/shiny_data.Rdata', 'data/novel_loci/hmmer/seq_hits.tsv', 'data/novel_loci/novel_loci_blast_results.tsv'
+    input:  'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata',  'data/novel_loci/hmmer/seq_hits.tsv', 'data/novel_loci/novel_loci_blast_results.tsv', 'data/shiny_data/DNTX_db.sql' 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
@@ -143,6 +143,7 @@ rule all:
 04/08/2019 - added the mysql command to get a comprehensive refseq gtf from ucsc, which is somehow different than the one
 from ncbi. see https://bioinformatics.stackexchange.com/questions/2548/hg38-gtf-file-with-refseq-annotations
 '''
+
 rule downloadAnnotation:
     output: reftxfa=ref_tx_fasta, refgtf=ref_GTF, ref_gen=ref_genome,prot_seq='ref/gencodeProtSeq.fa',\
      gencode_gff='ref/gencodeGFF3.gff', ensbl_gtf='ref/ensembl_ano.gtf', refseq='ref/refseq_ncbi.gff3', ucsc='ref/ucsc.gtf'
@@ -172,11 +173,16 @@ rule clean_phylop_and_snps:
     output:snps='ref/snps/hg38.snps.all.sorted.bed.gz', pp='ref/phylop_20/hg38.phyloP20way.sorted.bed.gz'
     shell:
         '''
+        rm -rf snp_tmp
+        mkdir snp_tmp
         module load ucsc
         module load bedops
         moulde load bedtools
         bigWigToWig {input.pp} | wig2bed | bedtools sort -i - | gzip -c - > {output.pp}
-        for i in ref/snps/bed_chr_*.bed.gz ; do zcat $i | tail -n+2  ; done  |  bedtools sort -i - |  gzip -c - > {output.snps}
+        for i in ref/snps/bed_chr_*.bed.gz ; do zcat $i | tail -n+2   > snp_tmp/snps.bed 
+        awk '$2 != $3{OFS="\t"; print $0}' snp_tmp/snps.bed  > snp_tmp/good_snps.bed 
+        awk '$2 == $3 {OFS="\t";print $1, $2, $3+1, $4, $5, $6}' snp_tmp/snps.bed | cat - snp_tmp/good_snps.bed | sort-bed --max-mem 24G - | gzip -c - > ref/snps/hg38.snps.all.sorted.bed.gz
+        rm -rf snp_tmp
         '''
 
 
@@ -372,6 +378,24 @@ fix the tissue specific gtfs so they have the all_tissue novel transcript ids(DN
 
 '''
 
+rule track_CHESS_transcripts:
+    input: base=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf', subtissue=subtissues), \
+    gfcfilt=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf', subtissue=subtissues), \
+    compfilt=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf', subtissue=subtissues), \
+    final=expand('data/gtfs/final_gtfs/{subtissue}.gtf', subtissue=subtissues)
+    output:'data/union_gtfs/final.combined.gtf'
+    shell:
+        '''
+        module load {gffcompare_version}
+        mkdir -p data/union_gtfs/
+        gffcompare -r {ref_GTF} -o data/union_gtfs/base {input.base}
+        gffcompare -r {ref_GTF} -o data/union_gtfs/gfcfilt {input.gfcfilt}
+        gffcompare -r {ref_GTF} -o data/union_gtfs/compfilt {input.compfilt}
+        gffcompare -r {ref_GTF} -o data/union_gtfs/final {input.final}
+        '''
+
+
+
 rule clean_tissue_gtfs_clean_salmon_quant:
     input:tissue_gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',  salmon_quant= lambda wildcards: subtissue_to_sample(wildcards.subtissue,  sample_dict), tx_converter_tab='data/misc/TCONS2MSTRG.tsv', det_df='data/misc/raw_dd/{subtissue}.dd.tsv.gz'
     params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}/'
@@ -464,8 +488,8 @@ rule run_trans_decoder:
         mkdir -p ../data/seqs/transdecoder_results/
         ./util/gtf_genome_to_cdna_fasta.pl ../data/gtfs/all_tissues.combined.gtf ../ref/gencode_genome.fa > transcripts.fasta
         ./util/gtf_to_alignment_gff3.pl ../data/gtfs/all_tissues.combined.gtf > transcripts.gff3
-        TransDecoder.LongOrfs -t transcripts.fasta
-        TransDecoder.Predict --single_best_only -t transcripts.fasta
+        TransDecoder.LongOrfs -m 60 -t transcripts.fasta
+        TransDecoder.Predict --single_best_only  -t transcripts.fasta
         ./util/cdna_alignment_orf_to_genome_orf.pl \
             transcripts.fasta.transdecoder.gff3 \
             transcripts.gff3 \
@@ -503,15 +527,41 @@ rule catagorize_novel_exons:
 
 
 rule prep_shiny_data:
-    input: ano_gtf = 'data/gtfs/all_tissues.combined_NovelAno.gtf', det_dfs = expand('data/misc/final_dd/{subtissue}.dd.tsv', subtissue=subtissues), tc2m = 'data/misc/TCONS2MSTRG.tsv', all_exp_file='data/all_tissue_quant.Rdata'
+    input: ano_gtf = 'data/gtfs/all_tissues.combined_NovelAno.gtf', \
+        det_dfs = expand('data/misc/final_dd/{subtissue}.dd.tsv', subtissue=subtissues), \
+        tc2m = 'data/misc/TCONS2MSTRG.tsv', \
+        all_exp_file='data/all_tissue_quant.Rdata', \
+        snps='ref/snps/hg38.snps.all.sorted.bed.gz', \
+        pp='ref/phylop_20/hg38.phyloP20way.sorted.bed.gz', \
+        gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
     params: dd_stem='data/misc/final_dd/REPLACE.dd.tsv'
-    output:'data/rdata/shiny_data.Rdata'
+    output:db_file='data/shiny_data/DNTX_db.sql'  , rdata_file='data/shiny_data/shiny_data.Rdata'
     shell:
         '''
+        rm -rf data/shiny_data/debug
+        mkdir -p data/shiny_data/debug
+        touch data/shiny_data/debug/no_cds_bu_marked_as_pc.txt
+        touch data/shiny_data/debug/multi_tx_under_same_id.txt
+        touch data/shiny_data/debug/failed_to_find_CDS_start_or_end.txt
+        touch data/shiny_data/debug/special_is_funky.txt
+        touch data/shiny_data/debug/bad_genes.txt
         module load {R_version}
-        Rscript scripts/prep_data_for_shiny.R {working_dir} {input.ano_gtf} {input.tc2m} {input.all_exp_file} {sample_file} {params.dd_stem} {output}
+        module load {bedtools_version}
+        Rscript scripts/prep_data_for_shiny.R \
+            {working_dir} \
+            {input.ano_gtf} \
+            {input.tc2m} \
+            {input.all_exp_file} \
+            {sample_file} \
+            {params.dd_stem} \
+            {input.snps} \
+            {input.pp} \
+            {input.gff3}
+            {output.rdata_file} \
+            {output.db_file}
 
         '''
+
 
 
 rule blastp_novel_loci:
@@ -520,7 +570,7 @@ rule blastp_novel_loci:
     shell:
         '''
         module load blast
-        blastp -query {input.pep} -db /fdb/blastdb/swissprot  -max_target_seqs 250 -max_hsps 3 -outfmt 6 -num_threads 8 > {output.results}
+        blastp -query {input.pep} -db /fdb/blastdb/swissprot  -max_target_seqs 250 -max_hsps 3 -outfmt "6 qseqid sseqid qlen slen nident evalue bitscore"  -num_threads 8 > {output.results}
         '''
 
 rule build_pfm_hmmDB:

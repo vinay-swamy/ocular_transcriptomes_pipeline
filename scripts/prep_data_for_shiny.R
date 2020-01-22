@@ -251,15 +251,9 @@ make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_en
                 split_end_nc_start <- special_exon  %>% mutate(start = cds_se_tx$cds_end+ 1, 
                                                                Xmin=cds_mid$Xmax, 
                                                                Xmax=Xmin + sqrt(offset))
-                
-                
-                
+
                 complete_df <- bind_rows(split_start_nc_end, cds_mid, split_end_nc_start) %>% arrange(start)
             }
-            
-            
-            
-            
             return(complete_df)
         }
         
@@ -312,6 +306,7 @@ make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_en
         }
         return(complete_df)
     }
+    
     PC_tx <- filter(gtf_gene, transcript_type == 'protein_coding') %>% pull(transcript_id) %>% unique
     res <- lapply(PC_tx, function(tx) merge_CDS_scaled_exons(gtf_gene = gtf_gene, 
                                                              scaled_exons = scaled_exons, 
@@ -330,9 +325,19 @@ plotting_gtf <- mclapply(all_genes, function(gene)
                                  which_exon_overlaps_start = which_exon_overlaps_start,
                                  gene = gene
                                  ), outFile = 'data/shiny_data/debug/failed_try.txt' ),mc.cores = 32
-                         ) %>% bind_rows
+                         ) %>% bind_rows 
+#add transcript0_ids back in, sort and add exon tooltips
+plotting_gtf <- plotting_gtf %>% 
+    bind_rows(gtf %>% filter(type == 'transcript', transcript_id %in% plotting_gtf$transcript_id )) %>% 
+    arrange(seqid, start, transcript_id, type) %>% 
+    left_join(exon_info_df) %>%  
+    mutate(ttip=paste0('genomic start: ', start, '\n', 'genomic end: ', end,'\n',
+                         'mean phylop score: ', mean_phylop_score, '\n', 'snps: ', snps), 
+           ttip=gsub('snps: NA', '', ttip), 
+           ttip=gsub('mean phylop score: NA\n', '', ttip))
+ 
 
-save(plotting_gtf, file = 'data/shiny_data/plotting_GTF.Rdata')
+#save(plotting_gtf, file = 'data/shiny_data/plotting_GTF.Rdata')
 #----
 
 con <- dbConnect(RSQLite::SQLite(), out_db_file)
@@ -346,22 +351,12 @@ dbWriteTable(con, 'exon_info_df', exon_info_df)
 dbWriteTable(con, 'cds_df', cds_df)
 dbWriteTable(con, 'plotting_gtf', plotting_gtf)
 dbDisconnect(con)
-all_gene_names <- unique(gtf$gene_name)
+all_gene_names <- unique(plotting_gtf$gene_name)
 all_tissues <- subtissues 
 #save(gtf, all_det, frac_samp_det, piu, tc2m,tissue_det, file=outfile)
+
 save(all_gene_names, all_tissues, file = out_rdata)
 
-# keep_tx <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>% rowSums() %>% {. >0} %>% {tc2m[.,'transcript_id']}
-# dev_gtf <- gtf %>% filter(transcript_id %in% keep_tx)
-# dev_frac_det <- frac_samp_det %>% filter(transcript_id %in% keep_tx)
-# dev_all_det <- all_det %>% filter(transcript_id %in% keep_tx)
-# dev_piu <- piu %>% filter(transcript_id %in% keep_tx)
-# dev_tissue_det <- tissue_det %>% filter(transcript_id %in% keep_tx)
-# dev_subtissues <- subtissues
-# dev_gene_names <- unique(dev_gtf$gene_name)
-# save(dev_gtf,dev_frac_det, dev_all_det, dev_piu, dev_tissue_det,dev_gene_names, dev_subtissues, file = 'testing/V2_shinydata.Rdata')
-# 
-# 
 
 
 

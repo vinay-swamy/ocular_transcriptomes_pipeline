@@ -73,8 +73,9 @@ sample_Table_studies <- core_tight %>%
     )) %>% filter(subtissue == t_tissue, sample %in% colnames(track_tab))
 studies <- unique(sample_Table_studies$study_accession)
 co=3
-nsamp <- sample_table %>% filter(subtissue == t_tissue) %>% nrow 
-nsamp_co <- max(trunc(.1*nsamp), 3)
+nsamp <- sample_table %>% filter(subtissue == t_tissue) %>% nrow # number of samples in tissue
+nsamp_co <- max(trunc(.1*nsamp), 3) # 10% of sapmles or 3, which ever is more  
+
 if(length(studies) >=co){
     # if there are 3 or more studies, keep tx present in at least 3 of them  
     det_in_study <- function(study){
@@ -86,7 +87,7 @@ if(length(studies) >=co){
     keep_nsamp <- det_by_study %>% {rowSums(.) >=nsamp_co }
     keep_tx <- filter(det_df, keep_study, keep_nsamp) %>% pull(transcript_id)
 }else{
-    # these are 2 or less studies -  most of these are gtex samples 
+    # there are 2 or less studies -  most of these are gtex samples, remove samples 
     nstudy=length(studies)
     det_in_study <- function(study){
         filter(sample_Table_studies, study_accession %in% study) %>% pull(sample) %>% 
@@ -137,6 +138,7 @@ filt_gtf <- filt_gtf %>% filter(!transcript_id %in% novel_loci_failed) # remove 
 tc2oid <- filt_gtf %>% filter(type == 'transcript') %>% 
     mutate(new_id=replace(transcript_id, class_code == '=', cmp_ref[class_code == '='])) %>% 
     select(transcript_id, new_id, class_code, gene_name, oId)
+
 final_detdf <- det_df %>% filter(!transcript_id %in% novel_loci_failed) %>% inner_join(tc2oid[,c('transcript_id', 'new_id')], .) %>% select(-transcript_id) %>% 
     rename(transcript_id=new_id)
 

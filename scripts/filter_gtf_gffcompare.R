@@ -1,19 +1,21 @@
 library(tidyverse)
 library(RBedtools)
-
-args <- c('/Volumes/data/ocular_transcriptomes_pipeline/',
-          '/Volumes/data/ocular_transcriptomes_pipeline/data/gtfs/raw_tissue_gtfs/Pituitary.combined.gtf',
-          '/Volumes/data/ocular_transcriptomes_pipeline/ref/gencode_comp_ano.gtf',
-          '/Volumes/data/ocular_transcriptomes_pipeline/data/gtfs/raw_tissue_gtfs/Pituitary.tracking',
-          'Pituitary',
-          '/Volumes/data/ocular_transcriptomes_pipeline/sampleTableFull.tsv',
-          '/Volumes/data/ocular_transcriptomes_pipeline/ref/UCSC_grch38_repats.bed',
-          'tout.gtf')
+library(argparse)
 
 source('~/scripts/write_gtf.R')
 
-args <- commandArgs(trailingOnly = T)
+parser <- ArgumentParser()
+parser$add_argument('--workingDir', action = 'store', dest = 'wd')
+parser$add_argument('--gtfFile', action = 'store', dest = 'gtf_file')
+parser$add_argument('--refGtfFile', action = 'store', dest = 'ref_gtf_file')
+parser$add_argument('--trackingFile', action = 'store', dest = 'track_file')
+parser$add_argument('--targetTissue', action = 'store', dest = 't_tissue')
+parser$add_argument('--sampleTableFile', action = 'store', dest = 'sample_table_file')
+parser$add_argument('--repeatsFile', action = 'store', dest = 'repeats_file')
+parser$add_argument('--outGtfFile', action = 'store', dest = 'out_gtf_file')
+parser$add_argument('--outDetfDF',action = 'store', dest  = 'out det_df_file')
 
+args <- commandArgs(trailingOnly = T)
 wd <- args[1]
 gtf_file <- args[2]
 ref_gtf_file <- args[3]

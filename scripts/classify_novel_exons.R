@@ -1,22 +1,29 @@
 library(tidyverse)
 library(RBedtools)
+library(argparse)
+
 source('~/scripts/write_gtf.R')
-args <- c('/Volumes/data/eyeintegration_splicing/', 
-          'data/gtfs/all_tissues.combined.gtf',
-          '/Volumes/data/eyeintegration_splicing/sampleTableFull.tsv',
-          '/Volumes/data/eyeintegration_splicing/ref/UCSC_grch38_repats.bed',
-          'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3',
-          '~/NIH/occular_transcriptomes_paper/data/all_tissues.combined_V1.Rdata',
-          '~/NIH/occular_transcriptome_shiny/all_tissues.combined_NovelAno.gtf')
-args <- commandArgs(trailingOnly = T)
-working_dir <- args[1]
-gfc_gtf_file <- args[2]
-sample_table_file <- args[3]
-repeat_bed_file <- args[4]
-gff3_file <- args[5]
-outfile <- args[6]
-gtf_ano_outfile <- args[7]
-novel_loci_txid_outfile <- args[8]
+
+parser <- ArgumentParser()
+parser$add_argument('--workingDir', action = 'store', dest = 'working_dir')
+parser$add_argument('--gfcGtfFile', action = 'store', dest = 'gfc_gtf_file')
+parser$add_argument('--sampleTableFile', action = 'store', dest = 'sample_table_file')
+parser$add_argument('--repeatBedFile',action = 'store', dest = 'repeat_bed_file')
+parser$add_argument('--gff3File', action = 'store', dest = 'gff3_file')
+parser$add_argument('--exonClassOutFile', action = 'store', dest = 'outfile')
+parser$add_argument('--gtfAnoOutFile', action = 'store', dest = 'gtf_ano_outfile')
+parser$add_argument('--novelLociTxIds', action = 'store', dest = 'novel_loci_txid_outfile')
+list2env(parser$parse_args(), .GlobalEnv)
+
+# args <- commandArgs(trailingOnly = T)
+# working_dir <- args[1]
+# gfc_gtf_file <- args[2]
+# sample_table_file <- args[3]
+# repeat_bed_file <- args[4]
+# gff3_file <- args[5]
+# outfile <- args[6]
+# gtf_ano_outfile <- args[7]
+# novel_loci_txid_outfile <- args[8]
 setwd(working_dir)
 
 if(!file.exists('rdata/all_ref_tx_exons.rdata')){

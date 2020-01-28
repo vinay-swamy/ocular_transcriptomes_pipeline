@@ -1,18 +1,22 @@
 library(tidyverse)
 library(matrixStats)
 library(parallel)
-args <- c('/data/swamyvs/eyeintegration_splicing/',
-          'data/salmon_quant/Retina_Fetal.Tissue/',
-          'data/gtfs/raw_tissue_gtfs/Retina_Fetal.Tissue.gfcfilt.gtf')
+library(argparse)
 
+parser <- ArgumentParser()
+parser$add_argument('--workingDir', action = 'store', dest = 'wd')
+parser$add_argument('--pathToQuantFiles',action = 'store', dest = 'path_to_quant_files')
+parser$add_argument('--gtfFile', action = 'store', dest = 'gtf_file')
+parser$add_argument('--outGtfFile', action = 'store', dest = 'out_gtf_file')
+list2env(parser$parse_args(), .GlobalEnv)
 
-args <- commandArgs(trailingOnly = T)
+#args <- commandArgs(trailingOnly = T)
 #save(args, file='testing/fixgtfargs.Rdata')
-wd <- args[1]
-path_to_quant_files <- args[2]
-gtf_file<- args[3]
-out_gtf_file <- args[4]
-setwd(wd)
+# wd <- args[1]
+# path_to_quant_files <- args[2]
+# gtf_file<- args[3]
+# out_gtf_file <- args[4]
+# setwd(wd)
 source('~/scripts/write_gtf.R')
 source('~/scripts/read_salmon.R')
 

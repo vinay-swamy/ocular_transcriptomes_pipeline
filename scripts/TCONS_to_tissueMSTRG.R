@@ -1,17 +1,28 @@
 library(tidyverse)
 library(tximport)
 library(parallel)
-args <- c('/Volumes/data/eyeintegration_splicing/','sampleTableFull.tsv' ,'testing/all_tissues_nosm.tracking',
-          'testing/all_tissues_nosm.combined.gtf', 'ref/gencode_comp_ano.gtf', 'testing/t2m.tsv', 'testing/ogtf.gtf')
+library(argparse)
+# args <- c('/Volumes/data/eyeintegration_splicing/','sampleTableFull.tsv' ,'testing/all_tissues_nosm.tracking',
+#           'testing/all_tissues_nosm.combined.gtf', 'ref/gencode_comp_ano.gtf', 'testing/t2m.tsv', 'testing/ogtf.gtf')
 
-args <- commandArgs(trailingOnly = T)
-wd <- args[1]
-sample_table_file <- args[2]
-track_file <- args[3]
-raw_gtf_file <- args[4]
-ref_gtf_file <- args[5]
-TCONS_to_MSTRG_file <- args[6]
-out_gtf_file <- args[7]
+parser <- ArgumentParser()
+parser$add_argument('--workingDir', action = 'store', dest = 'wd')
+parser$add_argument('--sampleTableFile', action = 'store', dest ='sample_table_file')
+parser$add_argument('--trackFile', action = 'store', dest = 'track_file')
+parser$add_argument('--rawGtfFile', action = 'store', dest = 'raw_gtf_file')
+parser$add_argument('--refGtfFile', action = 'store', dest = 'ref_gtf_file')
+parser$add_argument('--tcons2mstrgFile', action = 'store', dest = 'TCONS_to_MSTRG_file')
+parser$add_argument('--outGtfFile', action = 'store', dest = 'out_gtf_file')
+list2env(parser$parse_args(), .GlobalEnv)
+
+# args <- commandArgs(trailingOnly = T)
+# wd <- args[1]
+# sample_table_file <- args[2]
+# track_file <- args[3]
+# raw_gtf_file <- args[4]
+# ref_gtf_file <- args[5]
+# TCONS_to_MSTRG_file <- args[6]
+# out_gtf_file <- args[7]
 #save(args, file='/tmp/smoobargs.rdata')
 source('~/scripts/write_gtf.R')
 # nm_col <- function(col){

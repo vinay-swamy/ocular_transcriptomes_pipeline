@@ -299,7 +299,16 @@ rule filter_tissue_gtfs_gffcompare:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/filter_gtf_gffcompare.R {working_dir} {input.gtf} {ref_GTF} {input.track} {wildcards.subtissue} {sample_file} {params.repeats} {output.gtf} {output.det_df}
+        Rscript scripts/filter_gtf_gffcompare.R \
+            --workingDir {working_dir} \
+            --gtfFile {input.gtf} \
+            --refGtfFile {ref_GTF} \
+            --trackingFile {input.track} \
+            --targetTissue {wildcards.subtissue} \
+            --sampleTableFile {sample_file} \
+            --repeatsFile {params.repeats} \
+            --outGtfFile {output.gtf} \
+            --outDetDf {output.det_df}
         '''
 
 rule make_tx_fasta:
@@ -349,7 +358,11 @@ rule filter_gtf_salmonvar:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/filter_gtf_salmonvar.R {working_dir} {params.quant_path} {input.gtf} {output.gtf} 
+        Rscript scripts/filter_gtf_salmonvar.R \
+            --workingDir {working_dir} \
+            --pathToQuantFiles {params.quant_path} \
+            --gtfFile {input.gtf} \
+            --outGtfFile {output.gtf} 
         '''
 
 
@@ -369,7 +382,14 @@ rule merge_tissue_gtfs:
         module load {gffcompare_version}
         gffcompare -r {ref_GTF} --strict-match  -p DNTX -o data/gffcomp_dir/{params.gffc_prefix} {input.gtfs}
         module load {R_version}
-        Rscript scripts/TCONS_to_tissueMSTRG.R {working_dir} {sample_file} {output.raw_track_file} data/gffcomp_dir/all_tissues.combined.gtf {ref_GTF} {output.tx_converter_tab}  {output.gtf} 
+        Rscript scripts/TCONS_to_tissueMSTRG.R \
+            --workingDir {working_dir} \
+            --sampleTableFile {sample_file} \
+            --trackFile {output.raw_track_file} \
+            --rawGtfFile data/gffcomp_dir/all_tissues.combined.gtf \
+            --refGtfFile {ref_GTF} \
+            --tcons2mstrgFile {output.tx_converter_tab} \
+            --outGtfFile {output.gtf} 
         '''
 
 
@@ -403,7 +423,16 @@ rule clean_tissue_gtfs_clean_salmon_quant:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/fix_tissue_gtf_txids_make_expfiles.R {working_dir} {input.tissue_gtf} {wildcards.subtissue} {params.quant_path} {input.tx_converter_tab} {input.det_df} {output.exp_file} {output.gtf} {output.out_detdf}
+        Rscript scripts/fix_tissue_gtf_txids_make_expfiles.R \
+            --workingDir {working_dir} \
+            --tissueGtfFile {input.tissue_gtf} \
+            --targetTissue {wildcards.subtissue} \
+            --quantPath {params.quant_path} \
+            --trackFile {input.tx_converter_tab} \
+            --detDfFile {input.det_df} \
+            --expFile {output.exp_file} \
+            --outGtfFile {output.gtf} \
+            --outDetFile {output.out_detdf}
         '''
 
 
@@ -419,7 +448,7 @@ rule merge_all_salmon_quant:
     shell:
         '''
         module load {R_version}
-        Rscript scripts/merge_salmon_quant.R {working_dir} {params.quant_path} {output}
+        Rscript scripts/merge_salmon_quant.R  --workingDir {working_dir} --pathToQuant {params.quant_path} --outExpFile {output}
         '''
 
 '''
@@ -461,17 +490,22 @@ rule runrMATS:
 rule process_rmats_output:
     input: expand('data/rmats_out/{sub_tissue}/{event}.MATS.JC.txt', sub_tissue=[x for x in subtissues if x != 'Cornea_Fetal.Tissue'], event= rmats_events)
     params: rmats_od='data/rmats_out/', rm_locdir='ref/rmats_locs/'
-    output: 'data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv'
+    output: psi='data/rmats/all_tissues_psi.tsv', incCounts='data/rmats/all_tissues_incCounts.tsv'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/process_rmats_output.R {working_dir} {sample_file} {params.rmats_od} {params.rm_locdir} {output}
+        Rscript scripts/process_rmats_output.R \
+            --workingDir {working_dir} \
+            --sampleTableFile {sample_file} \
+            --rmatsOutDir {params.rmats_od} \
+            --rmLocDir {params.rm_locdir} \
+            --psiOutFile {output.psi} \
+            --incCountsOutFile {output.incCounts}
         '''
 
 
 '''
 pulled this from the trinnotate pipeline, makes a gff of the of using protein translations
-
 '''
 
 
@@ -520,7 +554,15 @@ rule catagorize_novel_exons:
         '''
         module load {R_version}
         module load {bedtools_version}
-        Rscript scripts/classify_novel_exons.R {working_dir} {stringtie_full_gtf} {sample_file} {params.repeats} {input.gff3} {output.classfile} {output.gtfano} {params.novel_loci_txids}
+        Rscript scripts/classify_novel_exons.R \
+            --workingDir {working_dir} \
+            --gfcGtfFile {stringtie_full_gtf} \
+            --sampleTableFile {sample_file} \
+            --repeatBedFile {params.repeats} \
+            --gff3File {input.gff3} \
+            --exonClassOutFile {output.classfile} \
+            --gtfAnoOutFile {output.gtfano}\
+            --novelLociTxIds {params.novel_loci_txids}
         python3 scripts/select_entry_from_fasta.py --infasta {input.full_pep} --txToKeep {params.novel_loci_txids} --outfasta {output.novel_loci_pep}
         '''
 
@@ -548,17 +590,17 @@ rule prep_shiny_data:
         module load {R_version}
         module load {bedtools_version}
         Rscript scripts/prep_data_for_shiny.R \
-            {working_dir} \
-            {input.ano_gtf} \
-            {input.tc2m} \
-            {input.all_exp_file} \
-            {sample_file} \
-            {params.dd_stem} \
-            {input.snps} \
-            {input.pp} \
-            {input.gff3}
-            {output.rdata_file} \
-            {output.db_file}
+            --workingDir {working_dir} \
+            --gtfFile {input.ano_gtf} \
+            --tcons2mstrgFile {input.tc2m} \
+            --quantFile {input.all_exp_file} \
+            --sampleTableFile {sample_file} \
+            --ddStem {params.dd_stem} \
+            --snpsBed {input.snps} \
+            --phylopBed {input.pp} \
+            --gff3File {input.gff3}
+            --outRdata {output.rdata_file} \
+            --outDbFile {output.db_file}
 
         '''
 

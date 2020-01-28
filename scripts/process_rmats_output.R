@@ -1,14 +1,23 @@
 library(tidyverse)
+library(argparse)
 
 #going to need location_files
 #args <- c('~/NIH/eyeintegration_splicing/', 'sampleTableV5.tsv', 'rmats_out/', 'ref/rmats_locs/', 'testing/smo.df', 'testing/dfdf.df' )
-args <- commandArgs(trailingOnly = T)
-wd <- args[1]
-sample_table_file <- args[2]
-rmats_out_dir <- args[3]
-rm_loc_dir <- args[4]
-all_tissue_psi_outfile <- args[5]
-all_tissue_incCounts_outfile <- args[6]
+parser <- ArgumentParser()
+parser$add_argument('--workingDir', action = 'store', dest = 'wd')
+parser$add_argument('--sampleTableFile', action = 'store', dest = 'sample_table_file')
+parser$add_argument('--rmatsOutDir', action = 'store', dest = 'rmats_out_dir')
+parser$add_argument('--rmLocDir', action = 'store', dest = 'rm_loc_dir')
+parser$add_argument('--psiOutFile',action = 'store', dest = 'all_tissue_psi_outfile')
+parser$add_argument('--incCountsOutFile',action = 'store', dest = 'all_tissue_incCounts_outfile')
+list2env(parser$parse_args(), .GlobalEnv)
+# args <- commandArgs(trailingOnly = T)
+# wd <- args[1]
+# sample_table_file <- args[2]
+# rmats_out_dir <- args[3]
+# rm_loc_dir <- args[4]
+# all_tissue_psi_outfile <- args[5]
+# all_tissue_incCounts_outfile <- args[6]
 #save(args, file='/tmp/friday.args')
 
 sample_table <- read_tsv(sample_table_file)

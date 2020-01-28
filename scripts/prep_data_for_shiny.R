@@ -3,25 +3,36 @@ library(matrixStats)
 library(RBedtools)
 library(DBI)
 library(parallel)
-# args <- c('/Volumes/data/ocular_transcriptomes_pipeline/',
-#           'data/gtfs/all_tissues.combined_NovelAno.gtf',
-#           'data/misc/TCONS2MSTRG.tsv',
-#           'data/all_tissue_quant.Rdata',
-#           'sampleTableFull.tsv',
-#           '/Volumes/data/ocular_transcriptomes_pipeline/data/misc/final_dd/REPLACE.dd.tsv')
-args <- commandArgs(trailingOnly = T)
+library(argparse)
 
-working_dir <- args[1]
-gtf_file <- args[2]
-tc2m_file <- args[3]
-quant_file <- args[4]
-sample_file <- args[5]
-dd_stem <- args[6]
-snps_bed <- args[7]
-phylop_bed <- args[8]
-gff3_file <- args[9]
-out_rdata <- args[10]
-out_db_file <- args[11]
+parser <- ArgumentParser()
+parser$add_argument('--workingDir', action = 'store', dest = 'working_dir')
+parser$add_argument('--gtfFile', action = 'store', dest  = 'gtf_file')
+parser$add_argument('--tcons2mstrgFile', action = 'store', dest = 'tc2m_file')
+parser$add_argument('--quantFile', action = 'store', dest = 'quant_file')
+parser$add_argument('--sampleTableFile',action  = 'store', dest = 'sample_file')
+parser$add_argument('--ddStem', action = 'store', dest = 'dd_stem')
+parser$add_argument('--snpsBed', action = 'store', dest = 'snps_bed')
+parser$add_argument('--phylopBed', action = 'store', dest = 'phylop_bed')
+parser$add_argument('--gff3File', action = 'store', dest = 'gff3_file')
+parser$add_argument('--outRdata', action = 'store', dest = 'out_rdata')
+parser$add_argument('--outDbFile', action = 'store', dest = 'out_db_file')
+
+list2env(parser$parse_args(), .GlobalEnv)
+
+# 
+# args <- commandArgs(trailingOnly = T)
+# working_dir <- args[1]
+# gtf_file <- args[2]
+# tc2m_file <- args[3]
+# quant_file <- args[4]
+# sample_file <- args[5]
+# dd_stem <- args[6]
+# snps_bed <- args[7]
+# phylop_bed <- args[8]
+# gff3_file <- args[9]
+# out_rdata <- args[10]
+# out_db_file <- args[11]
 setwd(working_dir)
 #$save(args, file='testing/pdfs_args.Rdata')
 process_det_files <- function(det_file, tissue){

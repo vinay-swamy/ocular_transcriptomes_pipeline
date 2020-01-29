@@ -14,17 +14,17 @@ parser$add_argument('--sampleTableFile', action = 'store', dest = 'sample_table_
 parser$add_argument('--repeatsFile', action = 'store', dest = 'repeats_file')
 parser$add_argument('--outGtfFile', action = 'store', dest = 'out_gtf_file')
 parser$add_argument('--outDetfDF',action = 'store', dest  = 'out det_df_file')
-
-args <- commandArgs(trailingOnly = T)
-wd <- args[1]
-gtf_file <- args[2]
-ref_gtf_file <- args[3]
-tracking_file <- args[4]
-t_tissue <- args[5]
-sample_table_file <- args[6]
-repeats_file <- args[7]
-out_gtf_file <- args[8]
-out_det_df_file <- args[9]
+list2env(parser$parse_args(), .GlobalEnv)
+# args <- commandArgs(trailingOnly = T)
+# wd <- args[1]
+# gtf_file <- args[2]
+# ref_gtf_file <- args[3]
+# tracking_file <- args[4]
+# t_tissue <- args[5]
+# sample_table_file <- args[6]
+# repeats_file <- args[7]
+# out_gtf_file <- args[8]
+# out_det_df_file <- args[9]
 setwd(wd)
 #save(args, file='/tmp/args.Rdata')
 # nm_col <- function(col){

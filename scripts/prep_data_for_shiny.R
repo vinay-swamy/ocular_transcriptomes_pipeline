@@ -17,9 +17,10 @@ parser$add_argument('--phylopBed', action = 'store', dest = 'phylop_bed')
 parser$add_argument('--gff3File', action = 'store', dest = 'gff3_file')
 parser$add_argument('--outRdata', action = 'store', dest = 'out_rdata')
 parser$add_argument('--outDbFile', action = 'store', dest = 'out_db_file')
+parser$add_argument('--outDlDataFolder', action = 'store', dest = 'out_df_data_folder')
 
 list2env(parser$parse_args(), .GlobalEnv)
-
+source('~/scripts/write_gtf.R')
 # 
 # args <- commandArgs(trailingOnly = T)
 # working_dir <- args[1]
@@ -350,23 +351,88 @@ plotting_gtf <- plotting_gtf %>%
 
 #save(plotting_gtf, file = 'data/shiny_data/plotting_GTF.Rdata')
 #----
-
+save.image('testing/all_prepped_shiny_data.Rdata')
 con <- dbConnect(RSQLite::SQLite(), out_db_file)
 dbWriteTable(con, 'gtf', gtf)
+dbSendQuery(con, 'CREATE INDEX gtf_ind ON gtf (gene_name, transcript_id)')
 dbWriteTable(con, 'frac_samp_det', frac_samp_det)
+dbSendQuery(con, 'CREATE INDEX frac_samp_det_ind ON frac_samp_det (gene_name, transcript_id)')
 dbWriteTable(con, 'all_det', all_det)
+dbSendQuery(con, 'CREATE INDEX all_det_ind ON all_det (gene_name, transcript_id)')
 dbWriteTable(con, 'piu', piu)
+dbSendQuery(con, 'CREATE INDEX piu_ind ON piu (gene_name, transcript_id)')
 dbWriteTable(con, 'tc2m', tc2m)
+dbSendQuery(con, 'CREATE INDEX tc2m_ind ON tc2m (gene_name, transcript_id)')
 dbWriteTable(con, 'tissue_det', tissue_det)
+dbSendQuery(con, 'CREATE INDEX tissue_det_ind ON tissue_det (gene_name, transcript_id)')
 dbWriteTable(con, 'exon_info_df', exon_info_df)
+dbSendQuery(con, 'CREATE INDEX exon_info_df_ind ON exon_info_df (exon_id)')
 dbWriteTable(con, 'cds_df', cds_df)
+dbSendQuery(con, 'CREATE INDEX cds_df_ind ON cds_df (gene_name, transcript_id)')
 dbWriteTable(con, 'plotting_gtf', plotting_gtf)
+dbSendQuery(con, 'CREATE INDEX plotting_gtf_ind ON plotting_gtf (gene_name, transcript_id)')
 dbDisconnect(con)
 all_gene_names <- unique(plotting_gtf$gene_name)
 all_tissues <- subtissues 
 #save(gtf, all_det, frac_samp_det, piu, tc2m,tissue_det, file=outfile)
 
 save(all_gene_names, all_tissues, file = out_rdata)
+
+#now make data for downloading from shiny app
+#----
+##panbody
+write_gtf3(gtf, paste0(out_df_data_folder, '/panbody.gtf'))
+##paneye
+eye_subtissues <- c('Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 
+                 'RPE_Adult.Tissue', 'RPE_Fetal.Tissue',
+                 'Cornea_Adult.Tissue', 'Cornea_Fetal.Tissue')
+eye_tissues <- c('Retina', 'Cornea', 'RPE')
+get_tx_in_tissues <- function(tissues){
+    tc2m %>% 
+        select(transcript_id, !!tissues) %>%
+        mutate(det=rowSums(.[,-1] %>% apply(2, function(x) !is.na(x)))) %>%
+        filter(det >0) %>%
+        pull(transcript_id)
+}
+
+get_tx_in_one_tissue <- function(tissues){
+    tc2m %>% 
+        select(transcript_id, !!tissues) %>%
+        filter(!is.na(.[,2])) %>%
+        pull(transcript_id)
+}
+
+paneye_gtf <- filter(gtf, transcript_id %in% get_tx_in_tissues(eye_subtissues))
+write_gtf3(paneye_gtf, paste0(out_df_data_folder, '/paneye.gtf'))
+
+lapply(eye_subtissues, function(tis) 
+        {t_gtf <- filter(gtf, transcript_id %in% get_tx_in_one_tissue(tis)) 
+        dim(t_gtf) 
+        write_gtf3(t_gtf, paste0(out_df_data_folder,'/', tis, '.gtf' ))
+        }
+    )
+
+
+lapply(eye_tissues, function(tis)
+        {
+    cols <- tc2m %>% select(contains(tis)) %>% colnames
+    ad_col <- which(grepl('Adult', cols))
+    fet_col <- which(grepl('Fetal', cols))
+    t_gtf <- filter(gtf,transcript_id %in% get_tx_in_tissues(cols) )
+        write_gtf3(t_gtf, paste0(out_df_data_folder,'/',cols[ad_col], '-', cols[fet_col], '.gtf' ))
+                
+        }
+    )
+
+
+
+
+
+
+
+
+
+
 
 
 

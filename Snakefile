@@ -93,7 +93,13 @@ def subtissue_to_sample(subtissue, sample_dict):
     [res.append(f'data/salmon_quant/{subtissue}/{sample}/quant.sf') for sample in sample_dict.keys() if sample_dict[sample]['subtissue'] == subtissue ]
     return(res)
 
-
+def make_tx_fasta_input(st):
+    if st == 'all_tissues.combined':
+        return 'data/gtfs/all_tissues.combined.gtf'
+    elif st == 'pan_eye':
+        return 'data/gtfs/pan_eye.combined.gtf'
+    else:
+        return f'data/gtfs/raw_tissue_gtfs/{st}.gfcfilt.gtf'
 
 
 #sample information
@@ -129,9 +135,11 @@ bam_path=config['bam_path']
 stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
 hmmer_version=config['hmmer_version']
 #win_size=config['window_size']
+eye_tissues=['Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 'RPE_Fetal.Tissue', 'RPE_Adult.Tissue', 'Cornea_Adult.Tissue', 'Cornea_Fetal.Tissue' ]
 
 rule all:
-    input:  'data/rdata/novel_exon_classification.Rdata', 'data/rmats/all_tissues_psi.tsv', 'data/all_tissue_quant.Rdata',  'data/novel_loci/hmmer/seq_hits.tsv', 'data/novel_loci/novel_loci_blast_results.tsv', 'data/shiny_data/DNTX_db.sql' 
+    input:  'data/rdata/novel_exon_classification.Rdata','data/all_tissue_quant.Rdata',  'data/novel_loci/hmmer/seq_hits.tsv', 'data/novel_loci/novel_loci_blast_results.tsv', 'data/shiny_data/DNTX_db.sql','data/pan_eye_quant.Rdata'
+     #'data/rmats/all_tissues_psi.tsv', 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
@@ -309,10 +317,14 @@ rule filter_tissue_gtfs_gffcompare:
             --repeatsFile {params.repeats} \
             --outGtfFile {output.gtf} \
             --outDetDf {output.det_df}
+
         '''
 
+
+
+
 rule make_tx_fasta:
-    input: tool = 'gffread/gffread', gtf = lambda wildcards: f'data/gtfs/raw_tissue_gtfs/{wildcards.subtissue}.gfcfilt.gtf' if wildcards.subtissue != 'all_tissues.combined' else 'data/gtfs/all_tissues.combined.gtf'
+    input: tool = 'gffread/gffread', gtf = lambda wildcards: make_tx_fasta_input(wildcards.subtissue)
     output: 'data/seqs/{subtissue}_tx.fa'
     shell:
         '''
@@ -367,7 +379,7 @@ rule filter_gtf_salmonvar:
 
 
 '''
-use gfcompare to combine all tissue specifc gtfs to make the all_tissues.cmobined final gtf, then use the script to parse the tracking table, and fix the transcript id's similar to before.
+use gffcompare to combine all tissue specifc gtfs to make the all_tissues.cmobined final gtf, then use the script to parse the tracking table, and fix the transcript id's similar to before.
 
 '''
 
@@ -375,7 +387,7 @@ use gfcompare to combine all tissue specifc gtfs to make the all_tissues.cmobine
 rule merge_tissue_gtfs:
     input: gtfs=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',subtissue=subtissues)
     params: gffc_prefix='all_tissues'
-    output: gtf='data/gtfs/all_tissues.combined.gtf', raw_track_file='data/gffcomp_dir/all_tissues.tracking', tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
+    output: all_tis_gtf='data/gtfs/all_tissues.combined.gtf', raw_track_file='data/gffcomp_dir/all_tissues.tracking', tx_converter_tab='data/misc/TCONS2MSTRG.tsv', eye_gtf='data/gtfs/pan_eye.combined.gtf'
     shell:
         '''
         mkdir -p data/gffcomp_dir
@@ -389,7 +401,8 @@ rule merge_tissue_gtfs:
             --rawGtfFile data/gffcomp_dir/all_tissues.combined.gtf \
             --refGtfFile {ref_GTF} \
             --tcons2mstrgFile {output.tx_converter_tab} \
-            --outGtfFile {output.gtf} 
+            --outAllGtfFile {output.all_tis_gtf} 
+            --outEyeGtfFile {output.eye_gtf}
         '''
 
 
@@ -434,6 +447,19 @@ rule clean_tissue_gtfs_clean_salmon_quant:
             --outGtfFile {output.gtf} \
             --outDetFile {output.out_detdf}
         '''
+
+
+
+
+rule agg_pan_eye_quant:
+    input: [f'data/salmon_quant/pan_eye/{sample}/quant.sf' for sample in sample_dict.keys() if sample_dict[sample]['subtissue']  in eye_tissues ]
+    output:'data/pan_eye_quant.Rdata'
+    shell:
+        '''
+        echo sdfsdf
+
+        '''
+
 
 
 '''
@@ -577,10 +603,13 @@ rule prep_shiny_data:
         pp='ref/phylop_20/hg38.phyloP20way.sorted.bed.gz', \
         gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
     params: dd_stem='data/misc/final_dd/REPLACE.dd.tsv'
-    output:db_file='data/shiny_data/DNTX_db.sql'  , rdata_file='data/shiny_data/shiny_data.Rdata'
+    output:db_file='data/shiny_data/app_data/DNTX_db.sql'  , rdata_file='data/shiny_data/app_data/shiny_data.Rdata', dl_data_dir= directory('data/shiny_data/dl_data/')
     shell:
         '''
+
         rm -rf data/shiny_data/debug
+        rm -rf {output.dl_data_dir}
+        mkdir -p {output.dl_data_dir}
         mkdir -p data/shiny_data/debug
         touch data/shiny_data/debug/no_cds_bu_marked_as_pc.txt
         touch data/shiny_data/debug/multi_tx_under_same_id.txt
@@ -598,12 +627,18 @@ rule prep_shiny_data:
             --ddStem {params.dd_stem} \
             --snpsBed {input.snps} \
             --phylopBed {input.pp} \
-            --gff3File {input.gff3}
+            --gff3File {input.gff3} \
             --outRdata {output.rdata_file} \
-            --outDbFile {output.db_file}
-
+            --outDbFile {output.db_file} \
+            --outDlDataFolder {output.dl_data_dir}
+        for gtf in data/shiny_data/dl_data/*.gtf 
+        do 
+            stem=${{gtf::-4}}
+            fasta=${{stem}}.fa
+            ./gffread/gffread -w $fasta -g {ref_genome} $gtf
+            zip ${{stem}}.zip $gtf $fasta
+        done 
         '''
-
 
 
 rule blastp_novel_loci:

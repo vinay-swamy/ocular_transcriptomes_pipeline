@@ -138,7 +138,7 @@ hmmer_version=config['hmmer_version']
 eye_tissues=['Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 'RPE_Fetal.Tissue', 'RPE_Adult.Tissue', 'Cornea_Adult.Tissue', 'Cornea_Fetal.Tissue' ]
 
 rule all:
-    input:  'data/rdata/novel_exon_classification.Rdata','data/all_tissue_quant.Rdata',  'data/novel_loci/hmmer/seq_hits.tsv', 'data/novel_loci/novel_loci_blast_results.tsv', 'data/shiny_data/DNTX_db.sql','data/pan_eye_quant.Rdata'
+    input:  'data/rdata/novel_exon_classification.Rdata','data/all_tissue_quant.Rdata',  'data/novel_loci/hmmer/seq_hits.tsv', 'data/novel_loci/novel_loci_blast_results.tsv', 'data/shiny_data/app_data/DNTX_db.sql','data/pan_eye_quant.Rdata'
      #'data/rmats/all_tissues_psi.tsv', 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'

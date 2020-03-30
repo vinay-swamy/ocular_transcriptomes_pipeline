@@ -12,18 +12,12 @@ parser$add_argument('--trackFile', action = 'store', dest = 'track_file')
 parser$add_argument('--rawGtfFile', action = 'store', dest = 'raw_gtf_file')
 parser$add_argument('--refGtfFile', action = 'store', dest = 'ref_gtf_file')
 parser$add_argument('--tcons2mstrgFile', action = 'store', dest = 'TCONS_to_MSTRG_file')
-parser$add_argument('--outGtfFile', action = 'store', dest = 'out_gtf_file')
+parser$add_argument('--outAllGtfFile', action = 'store', dest = 'out_gtf_file')
+parser$add_argument('--outEyeGtfFile', action = 'store', dest = 'pan_eye_gtf_file')
 list2env(parser$parse_args(), .GlobalEnv)
 
-# args <- commandArgs(trailingOnly = T)
-# wd <- args[1]
-# sample_table_file <- args[2]
-# track_file <- args[3]
-# raw_gtf_file <- args[4]
-# ref_gtf_file <- args[5]
-# TCONS_to_MSTRG_file <- args[6]
-# out_gtf_file <- args[7]
-#save(args, file='/tmp/smoobargs.rdata')
+eye_tissues <- c('Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 'RPE_Fetal.Tissue', 'RPE_Adult.Tissue', 
+                 'Cornea_Adult.Tissue', 'Cornea_Fetal.Tissue' )
 source('~/scripts/write_gtf.R')
 # nm_col <- function(col){
 #     col=col[col!='-']
@@ -142,13 +136,21 @@ final_gtf <- gfc_gtf %>%
            transcript_id=new_transcript_id, gene_name=new_gene_name ) %>% 
     .[,column_order]
 
-tcons2mstrg_complete <- tx2code %>% select(transcript_id, new_transcript_id, new_class_code) %>% left_join(tc2mstrg_simple,.) %>% 
-    select(-transcript_id) %>% rename(transcript_id=new_transcript_id,class_code= new_class_code ) %>% 
+tcons2mstrg_complete <- tx2code %>% 
+    select(transcript_id, new_transcript_id, new_class_code) %>% 
+    left_join(tc2mstrg_simple,.) %>% 
+    select(-transcript_id) %>% 
+    rename(transcript_id=new_transcript_id,class_code= new_class_code ) %>% 
     select(transcript_id,class_code, everything())
+save.image('testing/asdf.args.rdata')
+det_in_eye <- tcons2mstrg_complete %>% select(transcript_id, eye_tissues) %>% 
+    mutate(num_det= apply(.[,-1], 2, function(x) !is.na(x)) %>% rowSums(.)) %>% filter(num_det > 0)
+pan_eye_gtf <- filter(final_gtf, transcript_id %in% det_in_eye$transcript_id)
 
 
 
 write_tsv(tcons2mstrg_complete, TCONS_to_MSTRG_file)
 write_gtf3(final_gtf, out_gtf_file)
+write_gtf3(pan_eye_gtf, pan_eye_gtf_file)
 
 

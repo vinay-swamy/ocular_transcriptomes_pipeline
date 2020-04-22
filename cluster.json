@@ -3,23 +3,18 @@
 	{
 		"partition" : "norm",
 		"time" : "4:00:00",
-		"mem" : "16g",
+		"mem" : "32g",
 		"cpus-per-task" : "1",
 		"output"  : "00log/{rule}_{wildcards}.out",
 		"error" : "00log/{rule}_{wildcards}.err",
 		"extra" : "",
 		"name" : "{rule}.job"
 	},
-	"filter_sample_gtf" :
+	"merge_gtfs_to_tissue" :
 	{
-		"partition" : "quick",
-		"time" : "4:00:00",
-		"mem" : "16g",
-		"cpus-per-task" : "1",
-		"output"  : "00log/{rule}_{wildcards}.out",
-		"error" : "00log/{rule}_{wildcards}.err",
-		"extra" : "",
-		"name" : "{rule}.job"
+
+		"mem" : "120g",
+		"cpus-per-task" : "16"
 	},
 	"build_STARindex" :
 	{
@@ -52,10 +47,11 @@
 		"extra" : ""
 
 	},
-	"merge_gtfs_by_tissue":
+	"merge_all_gtfs":
 	{
-		"mem" : "48g",
-		"time" : "10:00:00"
+		"partition" : "largemem",
+		"mem" : "500g",
+		"time" : "24:00:00"
 	},
 	"merge_all_salmon_quant":
 	{

@@ -1,3 +1,4 @@
+# pylint: skip-file
 '''
 config file:
     sampleFile: tab seperated file  containing sample info
@@ -59,7 +60,6 @@ notes:
 
 **************REMEMBER TO CHANGE THE WORKING DIR IN THE CONFIG FILE IF YOU RERUN*********
 '''
-import subprocess as sp
 
 def readSampleFile(samplefile):
     # returns a dictionary of dictionaries where first dict key is sample id and second dict key are sample  properties
@@ -75,9 +75,8 @@ def subtissue_to_gtf(subtissue, sample_dict):
     res=[]
     for sample in sample_dict.keys():
         if sample_dict[sample]['subtissue']==subtissue :
-            res.append('data/st_filt/{}.gtf'.format(sample))
+            res.append(f'st_out/{sample}.gtf')
     return (res)
-
 
 def salmon_input(id,sample_dict,fql):
     paired=sample_dict[id]['paired']
@@ -86,7 +85,6 @@ def salmon_input(id,sample_dict,fql):
         return('-1 {s}_1.fastq.gz -2 {s}_2.fastq.gz'.format(s=id))
     else:
         return('-r {}.fastq.gz'.format(id))
-
 
 def subtissue_to_sample(subtissue, sample_dict):
     res=[]
@@ -99,7 +97,7 @@ def make_tx_fasta_input(st):
     elif st == 'pan_eye':
         return 'data/gtfs/pan_eye.combined.gtf'
     else:
-        return f'data/gtfs/raw_tissue_gtfs/{st}.gfcfilt.gtf'
+        return f'data/gtfs/final_tissue_gtfs/{st}.gtf'
 
 
 #sample information
@@ -193,7 +191,6 @@ rule clean_phylop_and_snps:
         rm -rf snp_tmp
         '''
 
-
 # This is manily for rerunning on biowulf,
 rule build_gffread:
     output:'gffread/gffread'
@@ -240,88 +237,71 @@ rule sort_bams:
         '''
 
 
-#hand added these synth samples.
-rule make_rmats_synth:
-    input: expand(bam_path+'STARbams/{id}/Sorted.out.bam', id=['SRS648866', 'SRS648919','SRS649535','SRS649567','SRS649619','SRS649622','SRS649657'])
-    output:'ref/rmats_locs/synth.rmats.txt'
-    shell:
-        '''
-        echo {input} | tr ' ' ',' > {output}
-        '''
-
-rule calculate_cov:
-    input:bam_path+'STARbams/{id}/Sorted.out.bam'
-    output: 'coverage_files/{id}/cov.per-base.bed.gz'
-    shell:
-        '''
-        module load mosdepth
-        sample={wildcards.id}
-        mosdepth coverage_files/$sample/cov {input[0]}
-        '''
-
+'''
+****PART 2**** build Transcriptome, and process
+'''
 rule run_stringtie:
     input:bam_path + 'STARbams/{sample}/Sorted.out.bam'
     output:'st_out/{sample}.gtf'
     shell:
         '''
         module load {stringtie_version}
-        stringtie {input[0]} -o {output[0]} -p 8 -G {ref_GTF}
+        stringtie {input[0]} -o {output[0]} -l {wildcards.sample} -p 8 -G {ref_GTF}
         '''
 
-
-'''
-****PART 2**** build Transcriptome, and process
-'''
-
-
-#gffread v0.9.12.Linux_x86_64/
-rule filter_sample_gtf:
-    input:'st_out/{sample}.gtf'
-    output:'data/st_filt/{sample}.gtf'
+rule merge_gtfs_to_tissue:
+    input:
+        gtfs = lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
+    params:
+        outdir = lambda wildcards: f'data/gtfs/raw_tissue_gtfs/{wildcards.subtissue}', 
+        st_quant_dir = 'st_out/'
+    output:
+        filtered_gtf = 'data/gtfs/raw_tissue_gtfs/{subtissue}.combined.filtered.gtf',
+        conv_tab = 'data/gtfs/raw_tissue_gtfs/{subtissue}.convtab'
     shell:
         '''
-        module load {stringtie_version}
-        stringtie --merge -l {wildcards.sample} -T 1 -F0 {input} > {output}
-        '''
-
-
-
-
-rule merge_gtfs_by_tissue:
-    input:lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
-    params: outdir= lambda wildcards: 'data/gtfs/raw_tissue_gtfs/{}'.format(wildcards.subtissue)
-    output: 'data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf', 'data/gtfs/raw_tissue_gtfs/{subtissue}.tracking'
-    shell:
-        '''
-	    module load {gffcompare_version}
-        gffcompare -r {ref_GTF} -p {wildcards.subtissue} -o {params.outdir} {input}
-        '''
-
-'''
-keep only transcripts that are present in samples form at least three different studies, and correct the transcript id so refernce trasncripts have ENST ids, and novel transcirpts have a novel ID
-'''
-rule filter_tissue_gtfs_gffcompare:
-    input:gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf',track='data/gtfs/raw_tissue_gtfs/{subtissue}.tracking'
-    params: repeats = 'ref/UCSC_grch38_repats.bed'
-    output: gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf', det_df = 'data/misc/raw_dd/{subtissue}.dd.tsv.gz'
-    shell:
-        '''
+        module load {gffcompare_version}
+        gffcompare --strict-match -r {ref_GTF} -T  -p {wildcards.subtissue} -o {params.outdir} {input.gtfs}
         module load {R_version}
-        Rscript scripts/filter_gtf_gffcompare.R \
+        Rscript scripts/filter_gtfs_by_tissue.R \
             --workingDir {working_dir} \
-            --gtfFile {input.gtf} \
-            --refGtfFile {ref_GTF} \
-            --trackingFile {input.track} \
-            --targetTissue {wildcards.subtissue} \
-            --sampleTableFile {sample_file} \
-            --repeatsFile {params.repeats} \
-            --outGtfFile {output.gtf} \
-            --outDetDf {output.det_df}
-
+            --sampleTable {sample_file} \
+            --subtissue {wildcards.subtissue} \
+            --gtfDir {params.outdir} \
+            --stringtieQuant {params.st_quant_dir}
         '''
 
+    
 
+rule merge_all_gtfs:
+    input: 
+        gtfs = expand('data/gtfs/raw_tissue_gtfs/{subtissue}.combined.filtered.gtf', subtissue= subtissues)
+    params: 
+        gffc_prefix='all_tissues'
+    output: 
+        all_tis_gtf='data/gtfs/all_tissues.combined.gtf', 
+        master_conv_tab='data/gtfs/all_tissues.convtab', 
+        eye_gtf='data/gtfs/pan_eye.combined.gtf', 
+        tissue_gtfs = expand('data/gtfs/final_tissue_gtfs/{subtissue}.gtf', subtissue = subtissues),
+        det_dfs = expand('data/gtfs/final_tissue_gtfs/{subtissue}.detdf', subtissue=subtissues) 
+    shell:
+        '''
+        module load {gffcompare_version}
+        gffcompare -r {ref_GTF} -T --strict-match -p DNTX -o data/gtfs/all_tissues {input.gtfs}
+        module load {R_version}
+        Rscripts scripts/merge_tissue_gtfs.R  \
+            --workingDir {working_dir}
+            --sampleTable {sample_file} \
+            --mergedGtfPath data/gtfs/all_tissues \
+            --rawTissueGtfs data/gtfs/raw_tissue_gtfs/ \
+            -finalTissueGtfs data/gtfs/final_tissue_gtfs/      
+        '''
+# Rscript scripts/merge_tissue_gtfs.R
 
+'''
+fix the tissue specific gtfs so they have the all_tissue novel transcript ids(DNTX); make salmon exp Rdata with the new tissue specific gtf
+
+'''
 
 rule make_tx_fasta:
     input: tool = 'gffread/gffread', gtf = lambda wildcards: make_tx_fasta_input(wildcards.subtissue)
@@ -337,198 +317,50 @@ rule build_salmon_index:
     shell:
         '''
         module load {salmon_version}
-        salmon index -t {input} -i {output} --type quasi --perfectHash -k 31
+        salmon index -t {input} -i {output} 
         '''
 
 rule run_salmon:
-    input: fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
+    input: 
+        fastqs=lambda wildcards: [fql+'fastq_files/{}_1.fastq.gz'.format(wildcards.sampleID),fql+'fastq_files/{}_2.fastq.gz'.format(wildcards.sampleID)] if sample_dict[wildcards.sampleID]['paired'] else fql+'fastq_files/{}.fastq.gz'.format(wildcards.sampleID),
         index='data/salmon_indices/{subtissue}'
-    params: cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),\
-     outdir=lambda wildcards: 'data/salmon_quant/{}/{}'.format(wildcards.subtissue, wildcards.sampleID)
-    output: 'data/salmon_quant/{subtissue}/{sampleID}/quant.sf','data/salmon_quant/{subtissue}/{sampleID}/quant_bootstraps.tsv.gz'
+    params: 
+        cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),
+        outdir=lambda wildcards: f'data/salmon_quant/dntx/{wildcards.subtissue}/{wildcards.sampleID}'
+    output: 
+        'data/salmon_quant/dntx/{subtissue}/{sampleID}/quant.sf'
     shell:
         '''
         id={wildcards.sampleID}
         module load {salmon_version}
-        salmon quant -p 8 -i {input.index} -l A --gcBias --seqBias --numBootstraps 100 --validateMappings {params.cmd} -o {params.outdir}
-        python3 scripts/convertBootstrapsToTsv.py {params.outdir} {params.outdir}
+        salmon quant -p 8 -i {input.index} -l A --gcBias --seqBias  --validateMappings {params.cmd} -o {params.outdir}
         '''
 
+def all_quant_input( sample_dict):
+    res = []
+    for key in sample_dict.keys():
+        st = sample_dict[key]['subtissue']
+        res.append(f'data/salmon_quant/dntx/{st}/{key}/quant.sf')
+    return res 
 
-
-'''
-Use the variance of salmon quantification to remove transcripts that have a high variability in their quantification
-I noticed that reference transcripts have a much lower variability than novel ones, so we are going to remove anything 
-abouve the 95th percentile of ref quant variance
-
-'''
-
-rule filter_gtf_salmonvar:
-    input: salmon_quant= lambda wildcards:subtissue_to_sample(wildcards.subtissue, sample_dict), gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf'
-    params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}/'
-    output:gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf'
-    shell:
-        '''
-        module load {R_version}
-        Rscript scripts/filter_gtf_salmonvar.R \
-            --workingDir {working_dir} \
-            --pathToQuantFiles {params.quant_path} \
-            --gtfFile {input.gtf} \
-            --outGtfFile {output.gtf} 
-        '''
-
-
-'''
-use gffcompare to combine all tissue specifc gtfs to make the all_tissues.cmobined final gtf, then use the script to parse the tracking table, and fix the transcript id's similar to before.
-
-'''
-
-
-rule merge_tissue_gtfs:
-    input: gtfs=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',subtissue=subtissues)
-    params: gffc_prefix='all_tissues'
-    output: all_tis_gtf='data/gtfs/all_tissues.combined.gtf', raw_track_file='data/gffcomp_dir/all_tissues.tracking', tx_converter_tab='data/misc/TCONS2MSTRG.tsv', eye_gtf='data/gtfs/pan_eye.combined.gtf'
-    shell:
-        '''
-        mkdir -p data/gffcomp_dir
-        module load {gffcompare_version}
-        gffcompare -r {ref_GTF} --strict-match  -p DNTX -o data/gffcomp_dir/{params.gffc_prefix} {input.gtfs}
-        module load {R_version}
-        Rscript scripts/TCONS_to_tissueMSTRG.R \
-            --workingDir {working_dir} \
-            --sampleTableFile {sample_file} \
-            --trackFile {output.raw_track_file} \
-            --rawGtfFile data/gffcomp_dir/all_tissues.combined.gtf \
-            --refGtfFile {ref_GTF} \
-            --tcons2mstrgFile {output.tx_converter_tab} \
-            --outAllGtfFile {output.all_tis_gtf} 
-            --outEyeGtfFile {output.eye_gtf}
-        '''
-
-
-'''
-fix the tissue specific gtfs so they have the all_tissue novel transcript ids(DNTX); make salmon exp Rdata with the new tissue specific gtf
-
-'''
-
-rule track_CHESS_transcripts:
-    input: base=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.combined.gtf', subtissue=subtissues), \
-    gfcfilt=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.gfcfilt.gtf', subtissue=subtissues), \
-    compfilt=expand('data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf', subtissue=subtissues), \
-    final=expand('data/gtfs/final_gtfs/{subtissue}.gtf', subtissue=subtissues)
-    output:'data/union_gtfs/final.combined.gtf'
-    shell:
-        '''
-        module load {gffcompare_version}
-        mkdir -p data/union_gtfs/
-        gffcompare -r {ref_GTF} -o data/union_gtfs/base {input.base}
-        gffcompare -r {ref_GTF} -o data/union_gtfs/gfcfilt {input.gfcfilt}
-        gffcompare -r {ref_GTF} -o data/union_gtfs/compfilt {input.compfilt}
-        gffcompare -r {ref_GTF} -o data/union_gtfs/final {input.final}
-        '''
-
-
-
-rule clean_tissue_gtfs_clean_salmon_quant:
-    input:tissue_gtf='data/gtfs/raw_tissue_gtfs/{subtissue}.compfilt.gtf',  salmon_quant= lambda wildcards: subtissue_to_sample(wildcards.subtissue,  sample_dict), tx_converter_tab='data/misc/TCONS2MSTRG.tsv', det_df='data/misc/raw_dd/{subtissue}.dd.tsv.gz'
-    params: quant_path=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}/'
-    output:gtf='data/gtfs/final_gtfs/{subtissue}.gtf', exp_file='data/exp_files/{subtissue}.RDS', out_detdf='data/misc/final_dd/{subtissue}.dd.tsv'
-    shell:
-        '''
-        module load {R_version}
-        Rscript scripts/fix_tissue_gtf_txids_make_expfiles.R \
-            --workingDir {working_dir} \
-            --tissueGtfFile {input.tissue_gtf} \
-            --targetTissue {wildcards.subtissue} \
-            --quantPath {params.quant_path} \
-            --trackFile {input.tx_converter_tab} \
-            --detDfFile {input.det_df} \
-            --expFile {output.exp_file} \
-            --outGtfFile {output.gtf} \
-            --outDetFile {output.out_detdf}
-        '''
-
-
-
-
-rule agg_pan_eye_quant:
-    input: [f'data/salmon_quant/pan_eye/{sample}/quant.sf' for sample in sample_dict.keys() if sample_dict[sample]['subtissue']  in eye_tissues ]
-    output:'data/pan_eye_quant.Rdata'
-    shell:
-        '''
-        echo sdfsdf
-
-        '''
-
-
-
-'''
-Finally, merge the tissue specific quant into an all tissues quant
-
-'''
 
 rule merge_all_salmon_quant:
-    input:expand('data/exp_files/{subtissue}.RDS', subtissue= subtissues),tx_converter_tab='data/misc/TCONS2MSTRG.tsv'
-    params: quant_path='data/exp_files/'
-    output: 'data/all_tissue_quant.Rdata'
+    input:
+        all_quant_input(sample_dict)
+    params: 
+        quant_path='data/salmon_quant/dntx/'
+    output: 
+        all_quant = 'data/all_tissue_quant.Rdata', 
+        eye_quant = 'data/pan_eye_quant.Rdata'
     shell:
         '''
         module load {R_version}
-        Rscript scripts/merge_salmon_quant.R  --workingDir {working_dir} --pathToQuant {params.quant_path} --outExpFile {output}
+        Rscript scripts/merge_salmon_quant.R  \
+        --workingDir {working_dir} \
+        --pathToQuant {params.quant_path} \
+        --sampleTable {sample_file} \
+        --outDir {output}
         '''
-
-'''
-rMATs part.Moo
-'''
-rule preprMats_running:
-    input: expand(bam_path + 'STARbams/{id}/Sorted.out.bam',id=sample_names),
-    params: bam_dir=bam_path
-    output:expand('ref/rmats_locs/{subtissue}.rmats.txt',subtissue=subtissues)
-    shell:
-        #include trailing / for bam_dir
-        '''
-        mkdir -p ref/rmats_locs
-        cat ref/subtissues.txt | while read t
-        do
-            prefix={params.bam_dir}/STARbams/
-            suffix=/Sorted.out.bam
-            grep $t {sample_file} |\
-              awk ' $2 == "y" {{print $1}}'  |\
-              sed -e "s|^|$prefix|g" - |\
-              sed -e "s|$|$suffix|g" - |\
-              tr '\\n' ',' > {params.bam_dir}/ref/rmats_locs/$t.rmats.txt
-        done
-        '''
-
-rule runrMATS:
-    input: loc = 'ref/rmats_locs/{subtissue}.rmats.txt', idx = 'ref/STARindex', gtf = 'data/gtfs/final_gtfs/{subtissue}.gtf', synthfile='ref/rmats_locs/synth.rmats.txt' 
-    params: outdir= lambda wildcards: f'data/rmats_out/{wildcards.subtissue}'
-    output: expand('data/rmats_out/{{subtissue}}/{event}.MATS.JC.txt', event=rmats_events)
-    # might have to change read length to some sort of function
-    shell:
-        '''
-        subtissue={wildcards.subtissue}
-        module load {rmats_version}
-        rmats --b1 {input.loc} --b2 {input.synthfile}  -t paired  \
-        --nthread 8  --readLength 130 --gtf {input.gtf} --bi {input.idx} --od {params.outdir}
-        '''
-
-rule process_rmats_output:
-    input: expand('data/rmats_out/{sub_tissue}/{event}.MATS.JC.txt', sub_tissue=[x for x in subtissues if x != 'Cornea_Fetal.Tissue'], event= rmats_events)
-    params: rmats_od='data/rmats_out/', rm_locdir='ref/rmats_locs/'
-    output: psi='data/rmats/all_tissues_psi.tsv', incCounts='data/rmats/all_tissues_incCounts.tsv'
-    shell:
-        '''
-        module load {R_version}
-        Rscript scripts/process_rmats_output.R \
-            --workingDir {working_dir} \
-            --sampleTableFile {sample_file} \
-            --rmatsOutDir {params.rmats_od} \
-            --rmLocDir {params.rm_locdir} \
-            --psiOutFile {output.psi} \
-            --incCountsOutFile {output.incCounts}
-        '''
-
 
 '''
 pulled this from the trinnotate pipeline, makes a gff of the of using protein translations
@@ -573,8 +405,13 @@ table browser > group=repeats, track=RepeatMasker
 '''
 
 rule catagorize_novel_exons:
-    input: gtf=stringtie_full_gtf, gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3', full_pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
-    params: repeats='ref/UCSC_grch38_repats.bed', novel_loci_txids='data/novel_loci/novel_loci_txids.txt'
+    input: 
+        gtf=stringtie_full_gtf, 
+        gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3', 
+        full_pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
+    params: 
+        repeats='ref/UCSC_grch38_repats.bed', 
+        novel_loci_txids='data/novel_loci/novel_loci_txids.txt'
     output: classfile='data/rdata/novel_exon_classification.Rdata', gtfano='data/gtfs/all_tissues.combined_NovelAno.gtf',                   novel_loci_pep='data/novel_loci/novel_loci.pep'
     shell:
         '''
@@ -595,15 +432,20 @@ rule catagorize_novel_exons:
 
 
 rule prep_shiny_data:
-    input: ano_gtf = 'data/gtfs/all_tissues.combined_NovelAno.gtf', \
-        det_dfs = expand('data/misc/final_dd/{subtissue}.dd.tsv', subtissue=subtissues), \
-        tc2m = 'data/misc/TCONS2MSTRG.tsv', \
+    input: 
+        ano_gtf = 'data/gtfs/all_tissues.combined_NovelAno.gtf', \
+        det_dfs = expand('data/gtfs/final_tissue_gtfs/{subtissue}.detdf', subtissue=subtissues), \
+        tc2m = 'data/gtfs/all_tissues.convtab', \
         all_exp_file='data/all_tissue_quant.Rdata', \
         snps='ref/snps/hg38.snps.all.sorted.bed.gz', \
         pp='ref/phylop_20/hg38.phyloP20way.sorted.bed.gz', \
         gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
-    params: dd_stem='data/misc/final_dd/REPLACE.dd.tsv'
-    output:db_file='data/shiny_data/app_data/DNTX_db.sql'  , rdata_file='data/shiny_data/app_data/shiny_data.Rdata', dl_data_dir= directory('data/shiny_data/dl_data/')
+    params: 
+        dd_stem='data/gtfs/final_tissue_gtfs/REPLACE.detdf',
+    output:
+        db_file='data/shiny_data/app_data/DNTX_db.sql'  , 
+        rdata_file='data/shiny_data/app_data/shiny_data.Rdata', 
+        dl_data_dir= directory('data/shiny_data/dl_data/')
     shell:
         '''
 
@@ -621,6 +463,7 @@ rule prep_shiny_data:
         Rscript scripts/prep_data_for_shiny.R \
             --workingDir {working_dir} \
             --gtfFile {input.ano_gtf} \
+            --refGtf {ref_GTF} \
             --tcons2mstrgFile {input.tc2m} \
             --quantFile {input.all_exp_file} \
             --sampleTableFile {sample_file} \

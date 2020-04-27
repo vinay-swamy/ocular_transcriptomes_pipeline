@@ -6,6 +6,7 @@ library(parallel)
 library(argparse)
 
 parser <- ArgumentParser()
+parser <- parser$add_argument_group()
 parser$add_argument('--workingDir', action = 'store', dest = 'working_dir')
 parser$add_argument('--gtfFile', action = 'store', dest  = 'gtf_file')
 parser$add_argument('--tcons2mstrgFile', action = 'store', dest = 'tc2m_file')
@@ -25,9 +26,9 @@ save.image('testing/pdfs_args.Rdata')
 source('~/scripts/write_gtf.R')
 
 setwd(working_dir)
-#$save(args, file='testing/pdfs_args.Rdata')
+save(args, file='testing/pdfs_args.Rdata')
 process_det_files <- function(det_file, tissue){
-    df <- read_tsv(det_file) %>% select(-refid, -gene_id, -code) %>% select(transcript_id, everything())
+    df <- read_tsv(det_file) %>% select(transcript_id, everything())
     num_det <- df[,-1] %>% rowSums() %>% {tibble(transcript_id=df$transcript_id, !!tissue :=. )} 
     return(num_det)
 }
@@ -98,7 +99,7 @@ unique_exons <- gtf %>% filter(type == 'exon') %>%
 uexon_bed <- unique_exons %>% mutate(score = 999) %>% select(seqid,start, end, exon_id, score, strand) %>% 
     from_data_frame %>% RBedtools('sort', i=.)
 test_bed <- unique_exons %>% sample_n(1000) %>% mutate(score = 999) %>% select(seqid,start, end, exon_id, score, strand)
-write_tsv(test_bed, '/Volumes/data/ocular_transcriptomes_pipeline/testing/gtf_bed_for_testing.bed', col_names = F)
+write_tsv(test_bed, 'testing/gtf_bed_for_testing.bed', col_names = F)
 
 exon_pp_bed <- RBedtools('intersect', options = '-wa -wb -sorted', output = 'stdout', a=uexon_bed, b=phylop_bed) %>%
         RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 11 -o mean',i= .) %>%
@@ -111,7 +112,7 @@ exon_snp_bed <- RBedtools('intersect', options = ' -s -wa -wb -sorted ', output 
     RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 10 -o collapse ',i= .) %>%
     to_data_frame %>%
     select(exon_id=X4, snps=X7)
-#save(exon_pp_bed, exon_snp_bed, file = 'testing/exons_snps_phylop.Rdata')
+save(exon_pp_bed, exon_snp_bed, file = 'testing/exons_snps_phylop.Rdata')
 #load('testing/exons_snps_phylop.Rdata')
 all_det <- lapply(subtissues, function(tis) 
                     gsub(pattern = 'REPLACE', replacement = tis, x = dd_stem) %>% {process_det_files(.,tis)}) %>% 
@@ -131,6 +132,9 @@ frac_samp_det <- frac_samp_det %>% as_tibble() %>% bind_cols(all_det[,c('transcr
 
 load(quant_file)
 all_quant[is.na(all_quant)] <- 0
+message('The following samples are missing from the quant file:')
+print(filter(sample_table, !sample %in% colnames(all_quant)))
+sample_table <- filter(sample_table, sample %in% colnames(all_quant))
 counts_by_tissue <- lapply(subtissues,
                                function(tis) filter(sample_table, subtissue == tis) %>% pull(sample) %>%
                                    {all_quant[,c('transcript_id', .)]} %>%
@@ -155,6 +159,13 @@ tissue_det <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>
 cds_df <- gff3 %>% inner_join(t2g) %>% select(-transcript_id, -Parent) %>% rename(transcript_id = new_tx_id) %>% 
     mutate(seqid=as.character(seqid))
 exon_info_df <- left_join(exon_pp_bed, exon_snp_bed) 
+## fix gtf gene_name column
+
+gtf_t2g <- gtf %>% filter(type == 'transcript') %>% select(transcript_id, gene_name) %>% distinct %>% 
+  mutate(gene_name = replace(gene_name , is.na(gene_name), transcript_id[is.na(gene_name)]))
+gtf <- gtf %>% select(-gene_name) %>% inner_join(gtf_t2g)
+
+
 
 #---- precalculating data for ap data for app
 # I wanted to add thick lines to indicate where the CDS of transcripts is, like commonly seen in genome browsers
@@ -395,7 +406,7 @@ plotting_gtf <- mclapply(all_genes, function(gene)
                                  which_exon_overlaps_end = which_exon_overlaps_end,
                                  which_exon_overlaps_start = which_exon_overlaps_start,
                                  gene = gene
-                                 ),mc.cores = 32
+                                 ),mc.cores = 48
                          ) %>% bind_rows 
 save(plotting_gtf, file='testing/plotting_gtf_list.Rdata')
 #add transcript0_ids back in, sort and add exon tooltips

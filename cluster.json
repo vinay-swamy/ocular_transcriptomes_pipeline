@@ -139,7 +139,14 @@
 	"prep_shiny_data" : 
 	{
 		"mem" : "120G",
-		"time" : "08:00:00",
+		"time" : "24:00:00",
 		"cpus-per-task" : "32"
+	},
+	"run_vep":
+	{
+		"mem": "120G",
+		"time": "24:00:00",
+		"cpus-per-task": "4"
 	}
+
 }

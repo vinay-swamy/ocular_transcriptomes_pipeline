@@ -116,11 +116,13 @@ stringtie_version=config['stringtie_version']
 STAR_version=config['STAR_version']
 rmats_version=config['rmats_verson']
 R_version=config['R_version']
+VEP_version=config['VEP_version']
 TransDecoder_version=config['TransDecoder_version']
 samtools_version=config['samtools_version']
 gffcompare_version=config['gffcompare_version']
 mosdepth_version=config['mosdepth_version']
 bedtools_version=config['bedtools_version']
+clinvar_data=config['clinvar_vcf']
 #python_env=config['python_env']
 #commonly used files/paths
 working_dir=config['working_dir']
@@ -136,7 +138,14 @@ hmmer_version=config['hmmer_version']
 eye_tissues=['Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 'RPE_Fetal.Tissue', 'RPE_Adult.Tissue', 'Cornea_Adult.Tissue', 'Cornea_Fetal.Tissue' ]
 
 rule all:
-    input:  'data/rdata/novel_exon_classification.Rdata','data/all_tissue_quant.Rdata',  'data/novel_loci/hmmer/seq_hits.tsv', 'data/novel_loci/novel_loci_blast_results.tsv', 'data/shiny_data/app_data/DNTX_db.sql','data/pan_eye_quant.Rdata'
+    input:  
+        'data/rdata/novel_exon_classification.Rdata',
+        'data/all_tissue_quant.Rdata',  
+        'data/novel_loci/hmmer/seq_hits.tsv', 
+        'data/novel_loci/novel_loci_blast_results.tsv', 
+        'data/shiny_data/app_data/DNTX_db.sql',
+        'data/pan_eye_quant.Rdata', 
+        'data/vep/variant_summary.txt'
      #'data/rmats/all_tissues_psi.tsv', 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
@@ -165,7 +174,7 @@ rule downloadAnnotation:
         module load mysql
         module load ucsc
         mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -N -e "select * from refGene" hg38 |\
-         cut -f2- | genePredToGtf -source=hg38.refGene.ucsc file stdin {output.ucsc}
+        cut -f2- | genePredToGtf -source=hg38.refGene.ucsc file stdin {output.ucsc}
         module load python/3.6
         python3 scripts/filterFasta.py /tmp/gencodePA_tmp.fa ref/chroms_to_remove {output.ref_gen}
         python3 scripts/clean_fasta.py /tmp/gencodeProtSeq.fa {output.prot_seq}
@@ -514,6 +523,31 @@ rule run_hmmscan:
          module load {hmmer_version}
          hmmscan --cpu 24 --tblout {output.tab} --domtblout {output.dom} --pfamtblout {output.pfm} {input.pfam} {input.pep}
          '''
+
+
+
+
+rule run_vep:
+    input: gff = 'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
+    output: 'data/vep/variant_summary.txt'
+    shell:
+        '''
+        module load {R_version}
+        module load {samtools_version}
+        module load {VEP_version}
+        rm -rf data/vep/ 
+        mkdir -p data/vep/ 
+        agat_sp_add_start_and_stop.pl --gff {input.gff} --fasta {ref_genome}  --out  data/vep/gtf_startstop_added.gff 
+        
+        Rscript  scripts/fix_gtf_for_vep.R \
+            --gff3  data/vep/gtf_startstop_added.gff  \
+            --ingtf data/gtfs/all_tissues.combined_NovelAno.gtf \
+            --outgtf data/vep/gtf_formatted.gtf 
+        
+        grep -v "#" data/vep/gtf_formatted.gtf  | sort -k1,1 -k4,4n -k5,5n -t$'\\t' | bgzip -c > data/vep/gtf_clean_sorted.gtf.gz
+        tabix -p gff data/vep/gtf_clean_sorted.gtf.gz
+        vep -i {clinvar_data} --gtf data/vep/gtf_clean_sorted.gtf.gz --fasta {ref_genome} -o {output}
+        '''
 
 
 

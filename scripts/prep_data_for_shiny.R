@@ -6,7 +6,6 @@ library(parallel)
 library(argparse)
 
 parser <- ArgumentParser()
-parser <- parser$add_argument_group()
 parser$add_argument('--workingDir', action = 'store', dest = 'working_dir')
 parser$add_argument('--gtfFile', action = 'store', dest  = 'gtf_file')
 parser$add_argument('--tcons2mstrgFile', action = 'store', dest = 'tc2m_file')

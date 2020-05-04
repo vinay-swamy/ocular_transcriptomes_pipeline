@@ -144,8 +144,8 @@ rule all:
         'data/novel_loci/hmmer/seq_hits.tsv', 
         'data/novel_loci/novel_loci_blast_results.tsv', 
         'data/shiny_data/app_data/DNTX_db.sql',
-        'data/pan_eye_quant.Rdata', 
-        'data/vep/variant_summary.txt'
+        'data/pan_eye_quant.Rdata',
+        expand('data/vep/{subtissue}/variant_summary.txt', subtissue = subtissues + ['gencode'])
      #'data/rmats/all_tissues_psi.tsv', 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
@@ -303,7 +303,7 @@ rule merge_all_gtfs:
             --sampleTable {sample_file} \
             --mergedGtfPath data/gtfs/all_tissues \
             --rawTissueGtfs data/gtfs/raw_tissue_gtfs/ \
-            -finalTissueGtfs data/gtfs/final_tissue_gtfs/      
+            --finalTissueGtfs data/gtfs/final_tissue_gtfs/      
         '''
 # Rscript scripts/merge_tissue_gtfs.R
 
@@ -313,16 +313,21 @@ fix the tissue specific gtfs so they have the all_tissue novel transcript ids(DN
 '''
 
 rule make_tx_fasta:
-    input: tool = 'gffread/gffread', gtf = lambda wildcards: make_tx_fasta_input(wildcards.subtissue)
-    output: 'data/seqs/{subtissue}_tx.fa'
+    input: 
+        tool = 'gffread/gffread', 
+        gtf = lambda wildcards: make_tx_fasta_input(wildcards.subtissue)
+    output: 
+        'data/seqs/{subtissue}_tx.fa'
     shell:
         '''
         ./gffread/gffread -w {output} -g {ref_genome}  {input.gtf}
         '''
 
 rule build_salmon_index:
-    input: 'data/seqs/{subtissue}_tx.fa'
-    output: directory('data/salmon_indices/{subtissue}')
+    input: 
+        'data/seqs/{subtissue}_tx.fa'
+    output: 
+        directory('data/salmon_indices/{subtissue}')
     shell:
         '''
         module load {salmon_version}
@@ -514,10 +519,12 @@ rule build_pfm_hmmDB:
 
 
 rule run_hmmscan:
-     input: pfam='ref/hmmer/Pfam-A.hmm',  pep='data/novel_loci/novel_loci.pep'
-     output:tab='data/novel_loci/hmmer/seq_hits.tsv',
-         dom='data/novel_loci/hmmer/domain_hits.tsv',
-         pfm='data/novel_loci/hmmer/pfam_hits.tsv'
+     input: 
+        pfam='ref/hmmer/Pfam-A.hmm',  pep='data/novel_loci/novel_loci.pep'
+     output:
+        tab='data/novel_loci/hmmer/seq_hits.tsv',
+        dom='data/novel_loci/hmmer/domain_hits.tsv',
+        pfm='data/novel_loci/hmmer/pfam_hits.tsv'
      shell:
          '''
          module load {hmmer_version}
@@ -526,27 +533,43 @@ rule run_hmmscan:
 
 
 
-
-rule run_vep:
-    input: gff = 'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
-    output: 'data/vep/variant_summary.txt'
+rule make_tissue_specific_cds_gtfs:
+    input: 
+        gff = 'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
+    params:
+        tmp_dir = 'tmp/vep/'
+    output: 
+        expand('tmp/vep/{subtissue}.gtf', subtissue = subtissues + ['gencode'])
     shell:
         '''
         module load {R_version}
-        module load {samtools_version}
-        module load {VEP_version}
-        rm -rf data/vep/ 
-        mkdir -p data/vep/ 
+        rm -rf {params.tmp_dir}
+        mkdir -p {params.tmp_dir}
         agat_sp_add_start_and_stop.pl --gff {input.gff} --fasta {ref_genome}  --out  data/vep/gtf_startstop_added.gff 
         
         Rscript  scripts/fix_gtf_for_vep.R \
             --gff3  data/vep/gtf_startstop_added.gff  \
             --ingtf data/gtfs/all_tissues.combined_NovelAno.gtf \
+            --detDf data/gtfs/all_tissues.convtab \
+            --outDir {params.tmp_dir} \
             --outgtf data/vep/gtf_formatted.gtf 
-        
-        grep -v "#" data/vep/gtf_formatted.gtf  | sort -k1,1 -k4,4n -k5,5n -t$'\\t' | bgzip -c > data/vep/gtf_clean_sorted.gtf.gz
-        tabix -p gff data/vep/gtf_clean_sorted.gtf.gz
-        vep -i {clinvar_data} --gtf data/vep/gtf_clean_sorted.gtf.gz --fasta {ref_genome} -o {output}
+        cp {ref_GTF} tmp/vep/gencode.gtf
+        '''
+#note: need to to copy gtf instead of symlinking because snakemake wigs out about times stamps 
+
+rule run_vep:
+    input:
+        gtf = 'tmp/vep/{subtissue}.gtf'
+    output: 
+        gtf = 'data/gtfs/CDS_complete/{subtissue}.gtf.gz',
+        variant_summary = 'data/vep/{subtissue}/variant_summary.txt'
+    shell:
+        '''
+        module load {samtools_version}
+        module load {VEP_version}
+        grep -v "#" {input.gtf} | sort -k1,1 -k4,4n -k5,5n -t$'\\t' | bgzip -c > {output.gtf}
+        tabix -p gff {output.gtf}
+        vep -i {clinvar_data} --gtf {output.gtf} --fasta {ref_genome} -o {output.variant_summary}
         '''
 
 

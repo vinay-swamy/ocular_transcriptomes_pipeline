@@ -60,7 +60,7 @@ notes:
 
 **************REMEMBER TO CHANGE THE WORKING DIR IN THE CONFIG FILE IF YOU RERUN*********
 '''
-
+import yaml
 def readSampleFile(samplefile):
     # returns a dictionary of dictionaries where first dict key is sample id and second dict key are sample  properties
     res={}
@@ -95,10 +95,12 @@ def make_tx_fasta_input(st):
     if st == 'all_tissues.combined':
         return 'data/gtfs/all_tissues.combined.gtf'
     elif st == 'pan_eye':
-        return 'data/gtfs/pan_eye.combined.gtf'
+        return 'data/gtfs/pan_eye.gtf'
     else:
         return f'data/gtfs/final_tissue_gtfs/{st}.gtf'
 
+with open(config['file_yaml']) as fyml:
+    files=yaml.load(fyml,Loader=yaml.FullLoader)
 
 #sample information
 sample_file=config['sampleFile']
@@ -123,13 +125,14 @@ gffcompare_version=config['gffcompare_version']
 mosdepth_version=config['mosdepth_version']
 bedtools_version=config['bedtools_version']
 clinvar_data=config['clinvar_vcf']
+file_yaml = config['file_yaml']
 #python_env=config['python_env']
 #commonly used files/paths
 working_dir=config['working_dir']
 STARindex='ref/STARindex'
-ref_tx_fasta='ref/gencode_tx_ref.fa'
-ref_GTF='ref/gencode_comp_ano.gtf'
-ref_genome='ref/gencode_genome.fa'
+ref_tx_fasta=files['ref_tx_fasta']
+ref_GTF=files['ref_GTF']
+ref_genome=files['ref_genome']
 fql=config['fastq_path']
 bam_path=config['bam_path']
 stringtie_full_gtf='data/gtfs/all_tissues.combined.gtf'
@@ -140,11 +143,11 @@ eye_tissues=['Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 'RPE_Fetal.Tissue', '
 rule all:
     input:  
         'data/rdata/novel_exon_classification.Rdata',
-        'data/all_tissue_quant.Rdata',  
+        'data/rdata/all_tissue_quant.Rdata',  
         'data/novel_loci/hmmer/seq_hits.tsv', 
         'data/novel_loci/novel_loci_blast_results.tsv', 
         'data/shiny_data/app_data/DNTX_db.sql',
-        'data/pan_eye_quant.Rdata',
+        'data/rdata/pan_eye_quant.Rdata',
         expand('data/vep/{subtissue}/variant_summary.txt', subtissue = subtissues + ['gencode'])
      #'data/rmats/all_tissues_psi.tsv', 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
@@ -160,17 +163,26 @@ from ncbi. see https://bioinformatics.stackexchange.com/questions/2548/hg38-gtf-
 '''
 
 rule downloadAnnotation:
-    output: reftxfa=ref_tx_fasta, refgtf=ref_GTF, ref_gen=ref_genome,prot_seq='ref/gencodeProtSeq.fa',\
-     gencode_gff='ref/gencodeGFF3.gff', ensbl_gtf='ref/ensembl_ano.gtf', refseq='ref/refseq_ncbi.gff3', ucsc='ref/ucsc.gtf'
+    output: 
+        reftxfa=ref_tx_fasta,
+        refgtf=ref_GTF, 
+        ref_gen=ref_genome,
+        prot_seq='ref/gencodeProtSeq.fa',
+        gencode_gff='ref/gencodeGFF3.gff', 
+        ensbl_gtf='ref/ensembl_ano.gtf', 
+        refseq='ref/refseq_ncbi.gff3', 
+        ucsc='ref/ucsc.gtf',
+        clinvar_sum = 'ref/clinvar_variant_summary.txt.gz'
     shell:
         '''
         wget -O - {config[ref_tx_fasta_url]} | gunzip -c - > {output.reftxfa}
         wget -O - {config[refGTF_url]} | gunzip -c - > {output.refgtf}
         wget -O - {config[ref_genome_url]} | gunzip -c - > /tmp/gencodePA_tmp.fa
         wget -O - {config[refProtSeq_url]} | gunzip -c - > /tmp/gencodeProtSeq.fa
-        wget -O - {config[refGFF3_url]} | gunzip -c > {output.gencode_gff}
+        wget -O - {config[refGFF3_url]q} | gunzip -c > {output.gencode_gff}
         wget -O - {config[ensembl_gtf_url]} | gunzip -c - > {output.ensbl_gtf}
         wget -O - {config[refseq_ncbi_url]} | gunzip -c - > {output.refseq}
+        wget -O {input.clinvar_sum} {config[clinvar_variant_url]}
         module load mysql
         module load ucsc
         mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -N -e "select * from refGene" hg38 |\
@@ -184,8 +196,12 @@ rule downloadAnnotation:
         '''
 
 rule clean_phylop_and_snps:
-    input: snps=expand('ref/snps/bed_chr_{chrom}.bed.gz', chrom=list(range(23))[1:]), pp='ref/phylop_20/hg38.phyloP20way.bw'
-    output:snps='ref/snps/hg38.snps.all.sorted.bed.gz', pp='ref/phylop_20/hg38.phyloP20way.sorted.bed.gz'
+    input: 
+        snps=expand('ref/snps/bed_chr_{chrom}.bed.gz', chrom=list(range(23))[1:]), 
+        pp='ref/phylop_20/hg38.phyloP20way.bw'
+    output:
+        snps='ref/snps/hg38.snps.all.sorted.bed.gz', 
+        pp='ref/phylop_20/hg38.phyloP20way.sorted.bed.gz'
     shell:
         '''
         rm -rf snp_tmp
@@ -288,22 +304,20 @@ rule merge_all_gtfs:
     params: 
         gffc_prefix='all_tissues'
     output: 
-        all_tis_gtf='data/gtfs/all_tissues.combined.gtf', 
-        master_conv_tab='data/gtfs/all_tissues.convtab', 
-        eye_gtf='data/gtfs/pan_eye.combined.gtf', 
-        tissue_gtfs = expand('data/gtfs/final_tissue_gtfs/{subtissue}.gtf', subtissue = subtissues),
-        det_dfs = expand('data/gtfs/final_tissue_gtfs/{subtissue}.detdf', subtissue=subtissues) 
+        all_tis_gtf=files['base_all_tissue_gtf'], 
+        master_conv_tab=files['all2tissue_convtab']
     shell:
         '''
         module load {gffcompare_version}
         gffcompare -r {ref_GTF} -T --strict-match -p DNTX -o data/gtfs/all_tissues {input.gtfs}
         module load {R_version}
-        Rscripts scripts/merge_tissue_gtfs.R  \
-            --workingDir {working_dir}
+        Rscript scripts/merge_tissue_gtfs.R  \
+            --workingDir {working_dir} \
             --sampleTable {sample_file} \
             --mergedGtfPath data/gtfs/all_tissues \
             --rawTissueGtfs data/gtfs/raw_tissue_gtfs/ \
             --finalTissueGtfs data/gtfs/final_tissue_gtfs/      
+        
         '''
 # Rscript scripts/merge_tissue_gtfs.R
 
@@ -322,6 +336,92 @@ rule make_tx_fasta:
         '''
         ./gffread/gffread -w {output} -g {ref_genome}  {input.gtf}
         '''
+
+
+'''
+pulled this from the trinnotate pipeline, makes a gff of the of using protein translations
+'''
+rule run_trans_decoder:
+    input:
+        'data/seqs/all_tissues.combined_tx.fa'
+    output:
+        'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3',
+        'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
+    shell:
+        '''
+        rm -rf TransDecoder
+        git clone https://github.com/TransDecoder/TransDecoder.git
+        cd TransDecoder
+        module load {TransDecoder_version}
+        mkdir -p ../data/seqs/transdecoder_results/
+        ./util/gtf_genome_to_cdna_fasta.pl ../data/gtfs/all_tissues.combined.gtf ../ref/gencode_genome.fa > transcripts.fasta
+        ./util/gtf_to_alignment_gff3.pl ../data/gtfs/all_tissues.combined.gtf > transcripts.gff3
+        TransDecoder.LongOrfs -m 60 -t transcripts.fasta
+        TransDecoder.Predict --single_best_only  -t transcripts.fasta
+        ./util/cdna_alignment_orf_to_genome_orf.pl \
+            transcripts.fasta.transdecoder.gff3 \
+            transcripts.gff3 \
+            transcripts.fasta > ../data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3
+        mv transcripts.fasta.transdecoder.*  ../data/seqs/transdecoder_results/
+        '''
+#
+rule clean_pep:
+    input:'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
+    output:pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep', meta_info='data/seqs/transdecoder_results/pep_fasta_meta_info.tsv'#, len_cor_tab='data/seqs/len_cor_tab.tsv'
+    shell:
+        '''
+        python3 scripts/clean_pep.py {input} {output.pep} {output.meta_info}
+        '''
+                #python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
+
+
+
+rule process_and_annotate_master_gtf:
+    input: 
+        gtf = files['base_all_tissue_gtf'],
+        gff = 'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
+    params:
+        agat_tmp_file = 'tmp/agat/gtf_startstop_added.gff',
+        path_to_final_gtfs = 'data/gtfs/final_tissue_gtfs/',
+        path_to_filt_gtfs = 'data/gtfs/raw_tissue_gtfs/'
+    output: 
+        full_gtf = files['anno_all_tissue_gtf'],
+        tissue_gtfs = expand('data/gtfs/final_tissue_gtfs/{subtissue}.gtf', subtissue = subtissues),
+        tissue_det_dfs = expand('data/gtfs/final_tissue_gtfs/{subtissue}.detdf', subtissue=subtissues),
+        classfile=files['exon_class_rdata'],                
+        novel_loci_pep=files['novel_loci_pep'],
+        gencode_dummy = 'data/gtfs/final_tissue_gtfs/gencode.gtf',
+        novel_loci_txids = files['novel_loci_txids']
+    shell:
+        '''
+        agat_sp_add_start_and_stop.pl --gff {input.gff} --fasta {ref_genome}  --out  {params.agat_tmp_file} 
+        
+        module load {R_version}
+        Rscript scripts/annotate_and_make_tissue_gtfs.R \
+            --workingDir {working_dir} \
+            --fileYaml {file_yaml} \
+            --agatGff {params.agat_tmp_file}
+
+        python3 scripts/select_entry_from_fasta.py --infasta {input.full_pep} --txToKeep {} --outfasta {output.novel_loci_pep}
+        cp {ref_GTF} {output.gencode_dummy}
+        '''
+
+
+rule run_vep:
+    input:
+        gtf = 'data/gtfs/final_tissue_gtfs/{subtissue}.gtf'
+    output: 
+        gtf = 'data/gtfs/CDS_complete/{subtissue}.gtf.gz',
+        variant_summary = 'data/vep/{subtissue}/variant_summary.txt'
+    shell:
+        '''
+        module load {samtools_version}
+        module load {VEP_version}
+        grep -v "#" {input.gtf} | sort -k1,1 -k4,4n -k5,5n -t$'\\t' | bgzip -c > {output.gtf}
+        tabix -p gff {output.gtf}
+        vep -i {clinvar_data} --gtf {output.gtf} --fasta {ref_genome} -o {output.variant_summary}
+        '''
+
 
 rule build_salmon_index:
     input: 
@@ -350,22 +450,25 @@ rule run_salmon:
         salmon quant -p 8 -i {input.index} -l A --gcBias --seqBias  --validateMappings {params.cmd} -o {params.outdir}
         '''
 
-def all_quant_input( sample_dict):
+def all_quant_input(eye_tissues, sample_dict):
     res = []
+    eye_tissues=set(eye_tissues)
     for key in sample_dict.keys():
         st = sample_dict[key]['subtissue']
         res.append(f'data/salmon_quant/dntx/{st}/{key}/quant.sf')
+        if sample_dict[key]['subtissue'] in eye_tissues:
+            res.append(f'data/salmon_quant/dntx/pan_eye/{key}/quant.sf')
     return res 
 
 
 rule merge_all_salmon_quant:
     input:
-        all_quant_input(sample_dict)
+        all_quant_input(eye_tissues, sample_dict)
     params: 
         quant_path='data/salmon_quant/dntx/'
     output: 
-        all_quant = 'data/all_tissue_quant.Rdata', 
-        eye_quant = 'data/pan_eye_quant.Rdata'
+        all_quant = files['all_tissue_quant'], 
+        eye_quant = files['eye_quant']
     shell:
         '''
         module load {R_version}
@@ -377,80 +480,56 @@ rule merge_all_salmon_quant:
         '''
 
 '''
-pulled this from the trinnotate pipeline, makes a gff of the of using protein translations
-'''
-
-
-rule run_trans_decoder:
-    input:'data/seqs/all_tissues.combined_tx.fa'
-    output:'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3', \
-    'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
-    shell:
-        '''
-        rm -rf TransDecoder
-        git clone https://github.com/TransDecoder/TransDecoder.git
-        cd TransDecoder
-        module load {TransDecoder_version}
-        mkdir -p ../data/seqs/transdecoder_results/
-        ./util/gtf_genome_to_cdna_fasta.pl ../data/gtfs/all_tissues.combined.gtf ../ref/gencode_genome.fa > transcripts.fasta
-        ./util/gtf_to_alignment_gff3.pl ../data/gtfs/all_tissues.combined.gtf > transcripts.gff3
-        TransDecoder.LongOrfs -m 60 -t transcripts.fasta
-        TransDecoder.Predict --single_best_only  -t transcripts.fasta
-        ./util/cdna_alignment_orf_to_genome_orf.pl \
-            transcripts.fasta.transdecoder.gff3 \
-            transcripts.gff3 \
-            transcripts.fasta > ../data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3
-        mv transcripts.fasta.transdecoder.*  ../data/seqs/transdecoder_results/
-        '''
-#
-rule clean_pep:
-    input:'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
-    output:pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep', meta_info='data/seqs/transdecoder_results/pep_fasta_meta_info.tsv'#, len_cor_tab='data/seqs/len_cor_tab.tsv'
-    shell:
-        '''
-        python3 scripts/clean_pep.py {input} {output.pep} {output.meta_info}
-        '''
-                #python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
-
-'''
 
 have to manually download this from UCSC
 table browser > group=repeats, track=RepeatMasker
 '''
 
-rule catagorize_novel_exons:
-    input: 
-        gtf=stringtie_full_gtf, 
-        gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3', 
-        full_pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
-    params: 
-        repeats='ref/UCSC_grch38_repats.bed', 
-        novel_loci_txids='data/novel_loci/novel_loci_txids.txt'
-    output: classfile='data/rdata/novel_exon_classification.Rdata', gtfano='data/gtfs/all_tissues.combined_NovelAno.gtf',                   novel_loci_pep='data/novel_loci/novel_loci.pep'
+
+rule blastp_novel_loci:
+    input: pep='data/novel_loci/novel_loci.pep'
+    output: results='data/novel_loci/novel_loci_blast_results.tsv'
     shell:
         '''
-        module load {R_version}
-        module load {bedtools_version}
-        Rscript scripts/classify_novel_exons.R \
-            --workingDir {working_dir} \
-            --gfcGtfFile {stringtie_full_gtf} \
-            --sampleTableFile {sample_file} \
-            --repeatBedFile {params.repeats} \
-            --gff3File {input.gff3} \
-            --exonClassOutFile {output.classfile} \
-            --gtfAnoOutFile {output.gtfano}\
-            --novelLociTxIds {params.novel_loci_txids}
-        python3 scripts/select_entry_from_fasta.py --infasta {input.full_pep} --txToKeep {params.novel_loci_txids} --outfasta {output.novel_loci_pep}
+        module load blast
+        blastp -query {input.pep} -db /fdb/blastdb/swissprot  -max_target_seqs 250 -max_hsps 3 -outfmt "6 qseqid sseqid qlen slen nident evalue bitscore"  -num_threads 8 > {output.results}
         '''
+
+rule build_pfm_hmmDB:
+     params: url=config['pfam_db']
+     output:'ref/hmmer/Pfam-A.hmm'
+     shell:
+         '''
+         wget -O - {params.url} | gunzip -c - > {output}
+         module load {hmmer_version}
+         hmmpress {output}
+         '''
+
+
+rule run_hmmscan:
+     input: 
+        pfam='ref/hmmer/Pfam-A.hmm',  pep='data/novel_loci/novel_loci.pep'
+     output:
+        tab='data/novel_loci/hmmer/seq_hits.tsv',
+        dom='data/novel_loci/hmmer/domain_hits.tsv',
+        pfm='data/novel_loci/hmmer/pfam_hits.tsv'
+     shell:
+         '''
+         module load {hmmer_version}
+         hmmscan --cpu 24 --tblout {output.tab} --domtblout {output.dom} --pfamtblout {output.pfm} {input.pfam} {input.pep}
+         '''
+
+
+
 
 
 
 rule prep_shiny_data:
     input: 
-        ano_gtf = 'data/gtfs/all_tissues.combined_NovelAno.gtf', \
+        ano_gtf = files['anno_all_tissue_gtf'], \
         det_dfs = expand('data/gtfs/final_tissue_gtfs/{subtissue}.detdf', subtissue=subtissues), \
         tc2m = 'data/gtfs/all_tissues.convtab', \
-        all_exp_file='data/all_tissue_quant.Rdata', \
+        all_exp_file='data/rdata/all_tissue_quant.Rdata', \
         snps='ref/snps/hg38.snps.all.sorted.bed.gz', \
         pp='ref/phylop_20/hg38.phyloP20way.sorted.bed.gz', \
         gff3='data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
@@ -497,80 +576,9 @@ rule prep_shiny_data:
         done 
         '''
 
-
-rule blastp_novel_loci:
-    input: pep='data/novel_loci/novel_loci.pep'
-    output: results='data/novel_loci/novel_loci_blast_results.tsv'
-    shell:
-        '''
-        module load blast
-        blastp -query {input.pep} -db /fdb/blastdb/swissprot  -max_target_seqs 250 -max_hsps 3 -outfmt "6 qseqid sseqid qlen slen nident evalue bitscore"  -num_threads 8 > {output.results}
-        '''
-
-rule build_pfm_hmmDB:
-     params: url=config['pfam_db']
-     output:'ref/hmmer/Pfam-A.hmm'
-     shell:
-         '''
-         wget -O - {params.url} | gunzip -c - > {output}
-         module load {hmmer_version}
-         hmmpress {output}
-         '''
-
-
-rule run_hmmscan:
-     input: 
-        pfam='ref/hmmer/Pfam-A.hmm',  pep='data/novel_loci/novel_loci.pep'
-     output:
-        tab='data/novel_loci/hmmer/seq_hits.tsv',
-        dom='data/novel_loci/hmmer/domain_hits.tsv',
-        pfm='data/novel_loci/hmmer/pfam_hits.tsv'
-     shell:
-         '''
-         module load {hmmer_version}
-         hmmscan --cpu 24 --tblout {output.tab} --domtblout {output.dom} --pfamtblout {output.pfm} {input.pfam} {input.pep}
-         '''
-
-
-
-rule make_tissue_specific_cds_gtfs:
-    input: 
-        gff = 'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
-    params:
-        tmp_dir = 'tmp/vep/'
-    output: 
-        expand('tmp/vep/{subtissue}.gtf', subtissue = subtissues + ['gencode'])
-    shell:
-        '''
-        module load {R_version}
-        rm -rf {params.tmp_dir}
-        mkdir -p {params.tmp_dir}
-        agat_sp_add_start_and_stop.pl --gff {input.gff} --fasta {ref_genome}  --out  data/vep/gtf_startstop_added.gff 
-        
-        Rscript  scripts/fix_gtf_for_vep.R \
-            --gff3  data/vep/gtf_startstop_added.gff  \
-            --ingtf data/gtfs/all_tissues.combined_NovelAno.gtf \
-            --detDf data/gtfs/all_tissues.convtab \
-            --outDir {params.tmp_dir} \
-            --outgtf data/vep/gtf_formatted.gtf 
-        cp {ref_GTF} tmp/vep/gencode.gtf
-        '''
 #note: need to to copy gtf instead of symlinking because snakemake wigs out about times stamps 
 
-rule run_vep:
-    input:
-        gtf = 'tmp/vep/{subtissue}.gtf'
-    output: 
-        gtf = 'data/gtfs/CDS_complete/{subtissue}.gtf.gz',
-        variant_summary = 'data/vep/{subtissue}/variant_summary.txt'
-    shell:
-        '''
-        module load {samtools_version}
-        module load {VEP_version}
-        grep -v "#" {input.gtf} | sort -k1,1 -k4,4n -k5,5n -t$'\\t' | bgzip -c > {output.gtf}
-        tabix -p gff {output.gtf}
-        vep -i {clinvar_data} --gtf {output.gtf} --fasta {ref_genome} -o {output.variant_summary}
-        '''
+
 
 
 

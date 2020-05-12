@@ -27,4 +27,5 @@ hmmer_version: 'hmmer/3.2.1'
 pfam_db: 'ftp://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz'
 phylop_bs_url: 'http://hgdownload.cse.ucsc.edu/goldenpath/hg38/phyloP20way/hg38.phyloP20way.bw'
 snps_dir_url: 'ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh38p7/BED/'
-
+clinvar_variant_url: 'ftp://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz'
+file_yaml: files.yaml

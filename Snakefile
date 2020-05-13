@@ -366,20 +366,22 @@ rule run_trans_decoder:
         '''
 #
 rule clean_pep:
-    input:'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
-    output:pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep', meta_info='data/seqs/transdecoder_results/pep_fasta_meta_info.tsv'#, len_cor_tab='data/seqs/len_cor_tab.tsv'
+    input:
+        'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
+    output:
+        pep='data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 
+        meta_info='data/seqs/transdecoder_results/pep_fasta_meta_info.tsv'#, len_cor_tab='data/seqs/len_cor_tab.tsv'
     shell:
         '''
         python3 scripts/clean_pep.py {input} {output.pep} {output.meta_info}
         '''
                 #python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
 
-
-
 rule process_and_annotate_master_gtf:
     input: 
         gtf = files['base_all_tissue_gtf'],
-        gff = 'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3'
+        gff = 'data/seqs/transdecoder_results/all_tissues.combined_transdecoderCDS.gff3',
+        full_pep = 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep'
     params:
         agat_tmp_file = 'tmp/agat/gtf_startstop_added.gff',
         path_to_final_gtfs = 'data/gtfs/final_tissue_gtfs/',
@@ -394,7 +396,9 @@ rule process_and_annotate_master_gtf:
         novel_loci_txids = files['novel_loci_txids']
     shell:
         '''
-        agat_sp_add_start_and_stop.pl --gff {input.gff} --fasta {ref_genome}  --out  {params.agat_tmp_file} 
+        agat_sp_add_start_and_stop.pl \
+            --gff {input.gff} --fasta {ref_genome}  \
+            --out  {params.agat_tmp_file} 
         
         module load {R_version}
         Rscript scripts/annotate_and_make_tissue_gtfs.R \
@@ -402,7 +406,11 @@ rule process_and_annotate_master_gtf:
             --fileYaml {file_yaml} \
             --agatGff {params.agat_tmp_file}
 
-        python3 scripts/select_entry_from_fasta.py --infasta {input.full_pep} --txToKeep {} --outfasta {output.novel_loci_pep}
+        python3 scripts/select_entry_from_fasta.py \
+            --infasta {input.full_pep} \
+            --txToKeep {output.novel_loci_txids} \
+            --outfasta {output.novel_loci_pep}
+        
         cp {ref_GTF} {output.gencode_dummy}
         '''
 

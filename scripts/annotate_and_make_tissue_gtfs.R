@@ -7,8 +7,8 @@ library(yaml)
 library(glue)
 
 parser <- ArgumentParser()
-parser$add_arugment('--workingDir', action = 'store',dest = 'working_dir')
-parser$add_arugment('--fileYaml', action = 'store', dest = 'file_yaml')
+parser$add_argument('--workingDir', action = 'store',dest = 'working_dir')
+parser$add_argument('--fileYaml', action = 'store', dest = 'file_yaml')
 parser$add_argument('--agatGff', action  = 'store', dest = 'agat_gff3_file')
 list2env(parser$parse_args(), .GlobalEnv)
 

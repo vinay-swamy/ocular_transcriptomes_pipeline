@@ -495,8 +495,10 @@ table browser > group=repeats, track=RepeatMasker
 
 
 rule blastp_novel_loci:
-    input: pep='data/novel_loci/novel_loci.pep'
-    output: results='data/novel_loci/novel_loci_blast_results.tsv'
+    input: 
+        pep='data/novel_loci/novel_loci.pep'
+    output: 
+        results='data/novel_loci/novel_loci_blast_results.tsv'
     shell:
         '''
         module load blast

@@ -105,7 +105,8 @@ final_gtf_sorted <- final_gtf %>%
            ) %>% 
     arrange(gene_name, transcript_id, type) %>% 
     select(-exon_id) %>% 
-    mutate(transcript_id = replace(transcript_id, transcript_id == '^', NA))
+    mutate(transcript_id = as.character(transcript_id), 
+           transcript_id = replace(transcript_id, transcript_id == '^', NA))
 
 format_tissue_specific_info <- function(ctab, s_subtissue, t_gtf){
     master_ctab <- ctab %>% 

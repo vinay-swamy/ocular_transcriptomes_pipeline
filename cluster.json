@@ -147,6 +147,13 @@
 		"mem": "80G",
 		"time": "04:00:00",
 		"cpus-per-task": "4"
+	}, 
+	"process_and_annotate_master_gtf":
+	{
+		"mem": "120G",
+		"time": "04:00:00",
+		"cpus-per-task": "24"
+
 	}
 
 }

@@ -96,6 +96,8 @@ def make_tx_fasta_input(st):
         return 'data/gtfs/all_tissues.combined.gtf'
     elif st == 'pan_eye':
         return 'data/gtfs/pan_eye.gtf'
+    elif st == 'gencode':
+        return 'ref/gencode_comp_ano.gtf'
     else:
         return f'data/gtfs/final_tissue_gtfs/{st}.gtf'
 
@@ -423,10 +425,13 @@ rule run_vep:
         variant_summary = 'data/vep/{subtissue}/variant_summary.txt'
     shell:
         '''
+        rm -rf data/vep/{wildcards.subtissue}/*
         module load {samtools_version}
         module load {VEP_version}
+        rm -rf {output.gtf} {output.gtf}.tbi 
         grep -v "#" {input.gtf} | sort -k1,1 -k4,4n -k5,5n -t$'\\t' | bgzip -c > {output.gtf}
         tabix -p gff {output.gtf}
+        echo "running VEP"
         vep -i {clinvar_data} --gtf {output.gtf} --fasta {ref_genome} -o {output.variant_summary}
         '''
 
@@ -448,9 +453,9 @@ rule run_salmon:
         index='data/salmon_indices/{subtissue}'
     params: 
         cmd=lambda wildcards: salmon_input(wildcards.sampleID,sample_dict,fql),
-        outdir=lambda wildcards: f'data/salmon_quant/dntx/{wildcards.subtissue}/{wildcards.sampleID}'
+        outdir=lambda wildcards: f'data/salmon_quant/{wildcards.subtissue}/{wildcards.sampleID}'
     output: 
-        'data/salmon_quant/dntx/{subtissue}/{sampleID}/quant.sf'
+        'data/salmon_quant/{subtissue}/{sampleID}/quant.sf'
     shell:
         '''
         id={wildcards.sampleID}
@@ -463,9 +468,10 @@ def all_quant_input(eye_tissues, sample_dict):
     eye_tissues=set(eye_tissues)
     for key in sample_dict.keys():
         st = sample_dict[key]['subtissue']
-        res.append(f'data/salmon_quant/dntx/{st}/{key}/quant.sf')
+        res.append(f'data/salmon_quant/{st}/{key}/quant.sf')
+        res.append(f'data/salmon_quant/gencode/{key}/quant.sf')
         if sample_dict[key]['subtissue'] in eye_tissues:
-            res.append(f'data/salmon_quant/dntx/pan_eye/{key}/quant.sf')
+            res.append(f'data/salmon_quant/pan_eye/{key}/quant.sf')
     return res 
 
 
@@ -473,7 +479,8 @@ rule merge_all_salmon_quant:
     input:
         all_quant_input(eye_tissues, sample_dict)
     params: 
-        quant_path='data/salmon_quant/dntx/'
+        quant_path='data/salmon_quant/',
+        out_dir = 'data/rdata/'
     output: 
         all_quant = files['all_tissue_quant'], 
         eye_quant = files['eye_quant']
@@ -484,7 +491,7 @@ rule merge_all_salmon_quant:
         --workingDir {working_dir} \
         --pathToQuant {params.quant_path} \
         --sampleTable {sample_file} \
-        --outDir {output}
+        --outDir {params.out_dir}
         '''
 
 '''

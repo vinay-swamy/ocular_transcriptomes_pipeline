@@ -178,6 +178,13 @@ novel_loci_failed <- novel_loci %>% filter(!transcript_id %in% no_intersect$X4)
 
 write(novel_loci_distinct$transcript_id, file = files$novel_loci_txids, sep = '\n')
 
+novel_loc_bed <- novel_loci_distinct %>% 
+    mutate(score = 888) %>% 
+    select(seqid, start, end, transcript_id, score, strand) %>%
+    from_data_frame %>% 
+    RBedtools('sort', output = files$novel_loci_bed, i=.)
+    
+
 
 novel_exons <- gfc_gtf %>% 
     filter(type == 'exon', !transcript_id %in% novel_loci$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id ) %>%

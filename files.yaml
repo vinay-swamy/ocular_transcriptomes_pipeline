@@ -18,3 +18,5 @@ raw_gtf_path: data/gtfs/raw_tissue_gtfs/
 final_gtf_path: data/gtfs/final_tissue_gtfs/
 all_tissue_quant: data/rdata/all_tissue_quant.Rdata
 eye_quant: data/rdata/pan_eye_quant.Rdata
+gencode_quant: data/rdata/gencode_quant.Rdata
+novel_loci_bed: data/novel_loci/novel_loci.sorted.bed

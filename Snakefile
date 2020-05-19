@@ -395,7 +395,8 @@ rule process_and_annotate_master_gtf:
         classfile=files['exon_class_rdata'],                
         novel_loci_pep=files['novel_loci_pep'],
         gencode_dummy = 'data/gtfs/final_tissue_gtfs/gencode.gtf',
-        novel_loci_txids = files['novel_loci_txids']
+        novel_loci_txids = files['novel_loci_txids'], 
+        novel_loci_bed = files['novel_loci_bed']
     shell:
         '''
         agat_sp_add_start_and_stop.pl \
@@ -483,7 +484,8 @@ rule merge_all_salmon_quant:
         out_dir = 'data/rdata/'
     output: 
         all_quant = files['all_tissue_quant'], 
-        eye_quant = files['eye_quant']
+        eye_quant = files['eye_quant'], 
+        gencode_quant = files['gencode_quant']
     shell:
         '''
         module load {R_version}

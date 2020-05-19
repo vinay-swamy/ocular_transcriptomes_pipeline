@@ -112,23 +112,28 @@ final_gtf_sorted <- final_gtf %>%
 
 format_tissue_specific_info <- function(ctab, s_subtissue, t_gtf){
     master_ctab <- ctab %>% 
-        select(transcript_id, !!s_subtissue) %>% 
+        select(transcript_id,gene_id, gene_name, !!s_subtissue) %>% 
         filter(!(is.na(.[,s_subtissue])))
     tissue_conv <- glue('{filt_gtf_path}{s_subtissue}.convtab') %>%
         fread(sep ='\t') %>% 
         as_tibble %>% rename(!!s_subtissue := transcript_id) %>% 
         inner_join(master_ctab, .) %>% 
         select(-(!!s_subtissue))
-    tissue_gtf <- t_gtf %>% filter(transcript_id %in% tissue_conv$transcript_id)
+    tissue_gtf <- t_gtf %>% filter(transcript_id %in% tissue_conv$transcript_id | type == 'gene') %>% # remove tx first then remov gene
+        filter(gene_name %in% tissue_conv$gene_name)
     final_gtf_file <- glue('{final_gtf_path}{s_subtissue}.gtf')
     write_gtf3(df = tissue_gtf, final_gtf_file)
-    det_df <- apply(tissue_conv[,-(1:4)],2, function(x) !is.na(x)) %>% as_tibble %>%  bind_cols(tissue_conv[,1], .)
+    det_df <- apply(tissue_conv[,-(1:3)],2, function(x) !is.na(x))
+    colnames(det_df) <- colnames(tissue_conv)[-(1:3)]
+    det_df <- det_df %>% as_tibble %>% bind_cols(tissue_conv[,1:2], .)
     fwrite(det_df,glue('{final_gtf_path}{s_subtissue}.detdf'), sep = '\t')
     fwrite(tissue_conv,glue('{final_gtf_path}{s_subtissue}.convtab'), sep = '\t')
 }
 
-sample_table <- read_tsv(files$sample_table_file)
-conv_tab <- fread(files$all2tissue_convtab, sep = '\t') %>% as_tibble
+# final_gtf_sorted <- rtracklayer::readGFF('/data/swamyvs/ocular_transcriptomes_pipeline/data/gtfs/all_tissues.combined_annotated.gtf')
+# tx2gene <- final_gtf_sorted  %>% filter(type == 'transcript') %>% select(transcript_id, gene_id, gene_name) %>% distinct
+sample_table <- read_tsv(files$sample_table)
+conv_tab <- fread(files$all2tissue_convtab, sep = '\t') %>% as_tibble %>% left_join(tx2gene %>% select(transcript_id, gene_name),.)
 subtissues <- unique(sample_table$subtissue)
 mclapply(subtissues, function(x) format_tissue_specific_info(conv_tab, x, final_gtf_sorted),
          mc.cores = min(length(subtissues), parallel::detectCores() - 10) ) 

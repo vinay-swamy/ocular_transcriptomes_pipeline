@@ -11,17 +11,19 @@ parser$add_argument('--workingDir', action = 'store',dest = 'working_dir')
 parser$add_argument('--fileYaml', action = 'store', dest = 'file_yaml')
 parser$add_argument('--agatGff', action  = 'store', dest = 'agat_gff3_file')
 list2env(parser$parse_args(), .GlobalEnv)
+######
+# working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
+# file_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
+# agat_gff3_file <- 'data/vep/gtf_startstop_added.gff'
+###### 
+
 
 source('~/scripts/write_gtf.R')
 setwd(working_dir)
 files <- read_yaml(file_yaml)
 filt_gtf_path <- files$raw_gtf_path
 final_gtf_path <-files$final_gtf_path
-######
-# working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/old_data/'
-# file_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
-# agat_gff3_file <- 'data/vep/gtf_startstop_added.gff'
-###### 
+
 #read in agat gff, compare its annotated start stops to actual cds,  remove cds that shirnk/grow too much and then 
 # appropriately reclassify everything 
 agat_gff3 <- rtracklayer::readGFF(agat_gff3_file) %>% as_tibble %>% 
@@ -139,15 +141,17 @@ mclapply(subtissues, function(x) format_tissue_specific_info(conv_tab, x, final_
 load(files$ref_tx_exon_rdata)
 gfc_gtf <- final_gtf_sorted
 
-novel_transcripts <- anti_join(gfc_gtf %>% filter(type == 'exon'), all_exons) %>% 
-    filter(!grepl('DNTX', gene_name)) %>% 
-    pull(transcript_id) %>% {filter(gfc_gtf, type == 'transcript', transcript_id %in% .)}
+novel_transcripts <- filter(gfc_gtf, !class_code %in% c('=', 'u'), type == 'transcript') 
 built_ref_tx <- filter(gfc_gtf, type == 'transcript', class_code == '=') %>% inner_join(all_transcripts) 
-novel_loci <- anti_join(gfc_gtf %>% filter(type == 'transcript'), all_transcripts) %>% filter(class_code =='u')
+novel_loci <-  gfc_gtf %>% filter(type == 'transcript', class_code == 'u') %>%  anti_join( all_transcripts)
+novel_loci_exists_in_ref <- gfc_gtf %>% filter(type == 'transcript', class_code == 'u') %>%  inner_join( all_transcripts)
+stopifnot(nrow(novel_loci_exists_in_ref ) == 0)
 
-novel_single_exon_tx <- novel_transcripts$transcript_id %>% {filter(gfc_gtf, transcript_id  %in% .)} %>% group_by(transcript_id) %>%
+novel_single_exon_tx <- novel_transcripts$transcript_id %>% 
+    {filter(gfc_gtf, transcript_id  %in% .)} %>% 
+    group_by(transcript_id) %>%
     summarise(count=n()) %>% filter(count == 2) %>% pull(transcript_id) %>%  {filter(novel_transcripts, transcript_id %in% .)}
-novel_transcripts <- filter(novel_transcripts, !transcript_id %in% novel_single_exon_tx$transcript_id)
+
 
 # remove novel loci that overlap with known genes, padded 5kb upstream and downstreqam, and overlap known repeat regions
 ## 
@@ -190,21 +194,25 @@ novel_exons <- novel_exons %>% mutate(nv_type=case_when(nvl_start & nvl_end ~ 'n
                                                         !nvl_start & !nvl_end ~ 'RI'))
 
 
-# 
-# 
+
+#
 gfc_gtf_ano <- filter(gfc_gtf, !transcript_id %in% novel_loci$transcript_id)
 gfc_gtf_ref <- filter(gfc_gtf_ano, !transcript_id %in% novel_transcripts$transcript_id)
 
-gfc_gtf_full <-  gfc_gtf_ano %>% filter(transcript_id  %in% novel_transcripts$transcript_id) %>% select(seqid, strand, start, end) %>%
-    distinct %>% anti_join(gfc_gtf_ref) %>% anti_join(all_exons) %>% anti_join(all_transcripts) %>%
-    mutate(is.novel=T) %>% left_join(gfc_gtf_ano, .) %>% mutate(is.novel=replace_na(is.novel, F))
-# 
+# dont include novel single exons in the exon analysis
+gfc_gtf_full <-  gfc_gtf_ano %>% 
+    filter(transcript_id  %in% novel_transcripts$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id) %>% 
+    select(seqid, strand, start, end) %>%
+    distinct %>% 
+    anti_join(gfc_gtf_ref) %>% 
+    anti_join(all_exons) %>% 
+    anti_join(all_transcripts) %>%
+    mutate(is.novel=T) %>% 
+    left_join(gfc_gtf_ano, .) %>% mutate(is.novel=replace_na(is.novel, F))
 
-# 
-# uniq_tss <-  gfc_gtf_full %>% filter(exon_number==1) %>% 
-#     select(seqid, strand, start) %>% distinct %>% 
-#     mutate(tss_id=paste0('TSS_', 1:nrow(.)))
-
+###
+#This is only looking at NOVEL starts and ends 
+###
 same_start <-  gfc_gtf_full %>% filter(exon_number==1) %>%
     select(seqid, strand, start, end, gene_name) %>% distinct %>%  
     group_by(seqid, strand ,start) %>% 
@@ -250,7 +258,9 @@ save(uniq_start_multi_gene,
      all_exons,
      all_transcripts, 
      novel_exons_TSES,  
-     uniq_ends_multi_gene, novel_loci_distinct, novel_transcripts, file = files$exon_class_rdata)
+     uniq_ends_multi_gene, 
+     novel_loci_distinct, 
+     novel_transcripts, file = files$exon_class_rdata)
 #now lets make a formated_gtf that we can use for everything
 ##this should have: transcript_type:pc, or not pc., exon_coding as well as is.novel exon, 
 ##novel exon type, first or last exon, single exon

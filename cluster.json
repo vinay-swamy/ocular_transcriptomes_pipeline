@@ -145,7 +145,7 @@
 	"run_vep":
 	{
 		"mem": "80G",
-		"time": "08:00:00",
+		"time": "12:00:00",
 		"cpus-per-task": "4"
 	}, 
 	"process_and_annotate_master_gtf":

@@ -100,6 +100,10 @@ def make_tx_fasta_input(st):
         return 'ref/gencode_comp_ano.gtf'
     else:
         return f'data/gtfs/final_tissue_gtfs/{st}.gtf'
+def calculate_cov_input(sample_dict, eye_tissues):
+    eye_tissues = set(eye_tissues)
+    return [f'data/novel_loci/cov/{id}/cov.per-base.bed.gz' for id in sample_dict.keys() if sample_dict[id]['subtissue'] in eye_tissues ]
+
 
 with open(config['file_yaml']) as fyml:
     files=yaml.load(fyml,Loader=yaml.FullLoader)
@@ -150,7 +154,8 @@ rule all:
         'data/novel_loci/novel_loci_blast_results.tsv', 
         'data/shiny_data/app_data/DNTX_db.sql',
         'data/rdata/pan_eye_quant.Rdata',
-        expand('data/vep/{subtissue}/variant_summary.txt', subtissue = subtissues + ['gencode'])
+        expand('data/vep/{subtissue}/variant_summary.txt', subtissue = subtissues + ['gencode']), 
+        calculate_cov_input(sample_dict, eye_tissues)
      #'data/rmats/all_tissues_psi.tsv', 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
@@ -276,6 +281,17 @@ rule run_stringtie:
         stringtie {input[0]} -o {output[0]} -l {wildcards.sample} -p 8 -G {ref_GTF}
         '''
 
+rule calculate_cov:
+    input:bam_path+'STARbams/{id}/Sorted.out.bam'
+    output: 'coverage_files/{id}/cov.per-base.bed.gz'
+    shell:
+        '''
+        module load mosdepth
+        sample={wildcards.id}
+        mosdepth coverage_files/$sample/cov {input[0]}
+        '''
+
+
 rule merge_gtfs_to_tissue:
     input:
         gtfs = lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
@@ -298,7 +314,10 @@ rule merge_gtfs_to_tissue:
             --stringtieQuant {params.st_quant_dir}
         '''
 
-    
+
+
+
+
 
 rule merge_all_gtfs:
     input: 
@@ -434,6 +453,19 @@ rule run_vep:
         tabix -p gff {output.gtf}
         echo "running VEP"
         vep -i {clinvar_data} --gtf {output.gtf} --fasta {ref_genome} -o {output.variant_summary}
+        '''
+
+
+rule intersect_coverage:
+    input:
+        cov = 'coverage_files/{id}/cov.per-base.bed.gz', 
+        bed =  files['novel_loci_bed']
+    output:
+        'data/novel_loci/cov/{id}/cov.per-base.bed.gz'
+    shell:
+        '''
+        module load {bedtools_version}
+        bedtools intersect -a {input.cov} -b {input.bed} > {output}
         '''
 
 

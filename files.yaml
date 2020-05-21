@@ -3,6 +3,7 @@ ref_GTF: '/data/swamyvs/ocular_transcriptomes_pipeline/ref/gencode_comp_ano.gtf'
 ref_genome: '/data/swamyvs/ocular_transcriptomes_pipeline/ref/gencode_genome.fa'
 base_all_tissue_gtf: 'data/gtfs/all_tissues.combined.gtf'
 anno_all_tissue_gtf: data/gtfs/all_tissues.combined_annotated.gtf
+pan_eye_gtf: data/gtfs/pan_eye.gtf
 all2tissue_tracking: 'data/gtfs/all_tissues.tracking'
 all2tissue_convtab: 'data/gtfs/all_tissues.convtab'
 snps_locs: 'ref/snps/hg38.snps.all.sorted.bed.gz' 
@@ -16,6 +17,7 @@ novel_loci_txids: 'data/novel_loci/novel_loci_txids.txt'
 novel_loci_pep: data/novel_loci/novel_loci.pep
 raw_gtf_path: data/gtfs/raw_tissue_gtfs/
 final_gtf_path: data/gtfs/final_tissue_gtfs/
+combined_gtf_path: data/gtfs/
 all_tissue_quant: data/rdata/all_tissue_quant.Rdata
 eye_quant: data/rdata/pan_eye_quant.Rdata
 gencode_quant: data/rdata/gencode_quant.Rdata

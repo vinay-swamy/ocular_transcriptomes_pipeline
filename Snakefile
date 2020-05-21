@@ -314,11 +314,6 @@ rule merge_gtfs_to_tissue:
             --stringtieQuant {params.st_quant_dir}
         '''
 
-
-
-
-
-
 rule merge_all_gtfs:
     input: 
         gtfs = expand('data/gtfs/raw_tissue_gtfs/{subtissue}.combined.filtered.gtf', subtissue= subtissues)
@@ -326,7 +321,8 @@ rule merge_all_gtfs:
         gffc_prefix='all_tissues'
     output: 
         all_tis_gtf=files['base_all_tissue_gtf'], 
-        master_conv_tab=files['all2tissue_convtab']
+        master_conv_tab=files['all2tissue_convtab'],
+        pan_eye_gtf = files['pan_eye_gtf']
     shell:
         '''
         module load {gffcompare_version}
@@ -334,10 +330,7 @@ rule merge_all_gtfs:
         module load {R_version}
         Rscript scripts/merge_tissue_gtfs.R  \
             --workingDir {working_dir} \
-            --sampleTable {sample_file} \
-            --mergedGtfPath data/gtfs/all_tissues \
-            --rawTissueGtfs data/gtfs/raw_tissue_gtfs/ \
-            --finalTissueGtfs data/gtfs/final_tissue_gtfs/      
+            --filesYaml {file_yaml}    
         
         '''
 # Rscript scripts/merge_tissue_gtfs.R

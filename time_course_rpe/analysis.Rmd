@@ -1,0 +1,150 @@
+---
+title: "Hufnagel Time Course RPE de novo transcriptome"
+output: html_notebook
+---
+
+
+
+```{r setup}
+library(knitr)
+opts_knit$set(root.dir = '/data/swamyvs/ocular_transcriptomes_pipeline/time_course_rpe/')
+```
+
+
+```{r}
+library(tidyverse)
+library(data.table)
+source('~/scripts/read_salmon.R')
+
+
+process_columns <- function(tab,col_name){
+    tab <- tab %>% filter( (!! rlang::sym(col_name)) != '-')
+    col <- tab %>% pull(!!col_name)
+    name_col <- tab %>% pull(transcript_id)
+    det <- suppressWarnings(str_split(col, ':|\\|'))
+    z <- '
+    most of the oIds have a 1:1 mapping to tx ids, so split into 2 chunks for faster run time, like a lot faster
+    _s denotes simple case, _c dentotes complex case
+    '
+    
+    d_lengths <- sapply(det, length)
+    base <- min(d_lengths)
+    simple <- d_lengths == base
+    det_s <- det[simple]
+    name_col_s <- name_col[simple]
+    tx_simple <-  lapply(1:length(det_s), function(i)  det_s[[i]][3] %>%
+                             c(name_col_s[i], .)) %>%
+        do.call(rbind, .) %>% as.data.frame(stringsAsFactors=F)
+    colnames(tx_simple) <- c('transcript_id', col_name)
+    #%>% rename(!!col_name:=oId) %>% distinct
+    tx_comp=data.frame()
+    if(sum(!simple) > 0){
+        det_c <- det[!simple]
+        name_col_c <- name_col[!simple]
+        
+        tx_comp <- lapply(1:length(det_c), function(i)  det_c[[i]][-1] %>%
+                              .[grepl('MSTRG\\.\\d+\\.\\d+', .) | grepl('ENST', .)] %>%
+                              {tibble(transcript_id=rep(name_col_c[i], length(.)),oId= . )}) %>%
+            bind_rows() %>% rename(!!col_name:=oId) %>% distinct
+    }
+    return(list(simple=tx_simple, comp=tx_comp))
+}
+
+read_track_file <- function(track_file){
+    track_tab <- fread(track_file, sep = '\t', header = F) %>% as_tibble
+    names <- c('transcript_id', 'gene_id','refid', 'class_code',  't1', 't2')
+    colnames(track_tab) <- names
+    cn <- colnames(track_tab)[-(1:4)]
+    tcons2mstrg <- mclapply(cn, function(col) process_columns(track_tab,col), mc.cores = min(length(cn), parallel::detectCores() - 10))
+    conv_tab <-  lapply(tcons2mstrg, function(x) x[['simple']]) %>% reduce(full_join) %>% inner_join(track_tab[, 1:4],.)
+    num_comp <- sapply(tcons2mstrg, function(x) nrow(x[['comp']])) %>% sum
+    message(glue('{num_comp} transcripts that map to multiple reference transcripts'))
+    return(conv_tab)
+}
+
+
+conv_tab <- read_track_file('ESC-_fRPE.tracking') %>% mutate(dntx_id = replace(t1, is.na(t1), t2[is.na(t1)])) %>% 
+    select(transcript_id, dntx_id)
+
+quant <- read_salmon('quant_files/', quant_type = 'abundance') %>% inner_join(conv_tab,.) %>% 
+    select(-transcript_id) %>% 
+    rename(transcript_id = dntx_id) 
+quant[is.na(quant)] <- 0
+rpe_gtf <- rtracklayer::readGFF('../data/gtfs/final_tissue_gtfs/RPE_Fetal.Tissue.gtf')
+esc_gtf <- rtracklayer::readGFF('../data/gtfs/final_tissue_gtfs/ESC_Stem.Cell.Line.gtf')
+merged_gtf <- rtracklayer::readGFF('../data/gtfs/all_tissues.combined_annotated.gtf') %>% 
+    as_tibble %>% 
+    filter(transcript_id %in% unique(c(rpe_gtf$transcript_id, esc_gtf$transcript_id)))
+det_df <- merged_gtf %>% filter(type == 'transcript') %>% 
+    mutate(is_rpe = transcript_id %in% rpe_gtf$transcript_id,
+           is_esc = transcript_id %in% esc_gtf$transcript_id) %>% 
+    select(transcript_id, class_code, transcript_type,is_rpe, is_esc) %>% 
+    filter(is_rpe |is_esc)
+cds_track_tab <- fread('/data/swamyvs/ocular_transcriptomes_paper/clean_data/CDS_gtf/CDS_comp.tracking', sep = '\t', header = F) %>%
+    as_tibble %>% 
+    mutate(cds_id = str_split(V3, '\\|') %>% sapply(function(x) x[2]), 
+           transcript_id = str_split(V5, '\\|') %>% sapply(function(x)x[2])) %>% 
+    select(cds_id, transcript_id) %>% 
+    inner_join(det_df) 
+gdata::keep(conv_tab, quant,merged_gtf,det_df,cds_track_tab, sure = T)
+save.image('analysis_prep.Rdata')
+```
+
+```{r}
+load('analysis_prep.Rdata')
+
+novel_orf_tx <- cds_track_tab %>% 
+    filter(class_code == '=') %>% 
+    pull(cds_id) %>% 
+    {filter(cds_track_tab, !cds_id %in% .)} %>% 
+    pull(transcript_id)
+
+det_df <- det_df %>% mutate(
+           rpe_only = is_rpe & !is_esc, 
+           both = is_rpe & is_esc, 
+           esc_only = !is_rpe & is_esc)
+tx_novelty_and_spec <- det_df %>% 
+    mutate(transcript_novelty = case_when(class_code == '=' ~ 'Annotated', 
+                                  class_code == 'u' ~ 'Novel Loci', 
+                                  !class_code %in% c('u', '=') & transcript_id %in% novel_orf_tx & transcript_type == 'protein_coding' ~ 'Novel Isoform Novel ORF',
+                                  !class_code %in% c('u', '=') & !transcript_id %in% novel_orf_tx & transcript_type == 'protein_coding' ~ 'Novel Isoform Annotated ORF',
+                                  !class_code %in% c('u', '=') & !transcript_type == 'protein_coding' ~ 'Novel Isoform Noncoding',
+                                  TRUE ~'sd'
+                                  )) %>% 
+    group_by(transcript_novelty) %>% 
+    summarise(`RPE only` = sum(rpe_only), 
+              `RPE and ESC` = sum(both), 
+              `ESC only` = sum(esc_only))
+
+
+```
+
+
+Do tissue specific tx change across differenttation
+
+
+
+```{r}
+spec_tx <- det_df %>% filter(!both) %>% mutate(which_spec = ifelse(rpe_only, 'RPE', 'ESC')) %>% select(transcript_id, which_spec)
+quant_exp <- quant %>% filter(rowSums(.[,-1] >=1) >0)
+res <- quant_exp %>% 
+    inner_join(spec_tx, .) %>% 
+    select(-transcript_id) %>% 
+    group_by(which_spec) %>% 
+    summarise_all(sum) %>% 
+    gather(key = 'sample', value = 'total_ab', -which_spec) %>%
+    mutate(day = gsub('_TW', '_D99', sample), 
+           day = str_split(day, '_D') %>% sapply(function(x) x[2]) %>% as.numeric) %>% 
+    arrange(day) %>% 
+    mutate(sample = factor(sample, levels = unique(sample)) )
+ggplot(res, aes(x=sample, y=total_ab, fill = which_spec)) +
+    geom_col(position = 'fill', stat = 'identity') +
+    cowplot::theme_cowplot()
+
+rpl <-  function(x) replace(x, x<1, 0) 
+k <- quant %>% mutate_if(is.numeric, rpl )
+
+```
+
+
+

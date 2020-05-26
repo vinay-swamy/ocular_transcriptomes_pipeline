@@ -14,7 +14,7 @@ list2env(parser$parse_args(), .GlobalEnv)
 ######
 # working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
 # file_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
-# agat_gff3_file <- 'data/vep/gtf_startstop_added.gff'
+# agat_gff3_file <- 'tmp/agat/gtf_startstop_added.gff'
 ###### 
 
 
@@ -128,6 +128,7 @@ format_tissue_specific_info <- function(ctab, s_subtissue, t_gtf){
     det_df <- det_df %>% as_tibble %>% bind_cols(tissue_conv[,1:2], .)
     fwrite(det_df,glue('{final_gtf_path}{s_subtissue}.detdf'), sep = '\t')
     fwrite(tissue_conv,glue('{final_gtf_path}{s_subtissue}.convtab'), sep = '\t')
+    return(TRUE)
 }
 
 # final_gtf_sorted <- rtracklayer::readGFF('/data/swamyvs/ocular_transcriptomes_pipeline/data/gtfs/all_tissues.combined_annotated.gtf')
@@ -135,15 +136,17 @@ format_tissue_specific_info <- function(ctab, s_subtissue, t_gtf){
 sample_table <- read_tsv(files$sample_table)
 conv_tab <- fread(files$all2tissue_convtab, sep = '\t') %>% as_tibble %>% left_join(tx2gene %>% select(transcript_id, gene_name),.)
 subtissues <- unique(sample_table$subtissue)
-mclapply(subtissues, function(x) format_tissue_specific_info(conv_tab, x, final_gtf_sorted),
-         mc.cores = min(length(subtissues), parallel::detectCores() - 10) ) 
-
+finished<- mclapply(subtissues, function(x) format_tissue_specific_info(conv_tab, x, final_gtf_sorted),
+         mc.cores = min(length(subtissues), 24)) 
+stopifnot(all(finished %>% unlist))
 
 ############################################################
 ####### now run the analysis to make the master gtf ########
 ############################################################
 
 load(files$ref_tx_exon_rdata)
+# gfc_gtf <- rtracklayer::readGFF('data/gtfs/all_tissues.combined_annotated.gtf') %>% 
+#     select(-is.singleExon, -is.last, -is.first, -novel_exon_id, -novel_exon_type)
 gfc_gtf <- final_gtf_sorted
 
 novel_transcripts <- filter(gfc_gtf, !class_code %in% c('=', 'u'), type == 'transcript') 
@@ -245,7 +248,8 @@ uniq_start_multi_gene <- novel_exons %>% mutate(novel_start=nvl_start) %>% filte
 terminal_exons <-  gfc_gtf_full %>% 
     filter(type == 'exon') %>% 
     group_by(transcript_id) %>% 
-    summarise(seqid=last(seqid), strand=last(strand), start=last(start), end=last(end), gene_name=last(gene_name)) %>% 
+    summarise(seqid=seqid[which.max(exon_number)], strand=strand[which.max(exon_number)], start=start[which.max(exon_number)], 
+              end=end[which.max(exon_number)], gene_name=gene_name[which.max(exon_number)]) %>% 
     select(-transcript_id) %>% distinct
 
 same_ends <- terminal_exons %>% group_by(seqid, strand, end) %>% 
@@ -343,7 +347,7 @@ complete_gtf <- gfc_gtf %>%
     mutate(is.last=replace_na(is.last, 'FALSE'),is.singleExon=ifelse(transcript_id %in% single_exons, 'TRUE', 'FALSE'), 
            is.first = replace_na(is.first, 'FALSE'))
 
-write_gtf3(complete_gtf, files$anno_all_tissue_gtf)                                  
+write_gtf3(complete_gtf, files$anno_all_tissue_gtf)                                 
 
 
 

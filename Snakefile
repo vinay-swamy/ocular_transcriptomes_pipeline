@@ -110,7 +110,7 @@ with open(config['file_yaml']) as fyml:
 
 #sample information
 sample_file=config['sampleFile']
-sample_dict=readSampleFile(config['sampleFile'])# sampleID:dict{path,paired,metadata}
+sample_dict=readSampleFile(config['sampleFile'])# sampleID:dict{path,paired,meta-data}
 tissue_file=config['tissueFile']
 subtissue_file=config['subtissueFile']
 with open(tissue_file) as tf, open(subtissue_file) as sf:

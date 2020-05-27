@@ -12,9 +12,9 @@ parser$add_argument('--fileYaml', action = 'store', dest = 'file_yaml')
 parser$add_argument('--agatGff', action  = 'store', dest = 'agat_gff3_file')
 list2env(parser$parse_args(), .GlobalEnv)
 ######
-# working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
-# file_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
-# agat_gff3_file <- 'tmp/agat/gtf_startstop_added.gff'
+working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
+file_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
+agat_gff3_file <- 'tmp/agat/gtf_startstop_added.gff'
 ###### 
 
 
@@ -40,13 +40,14 @@ gff3_has_valid_start_stop <- agat_gff3  %>%
     group_by(transcript_id) %>% 
     summarise(has_start_stop = sum(type %in% c('stop_codon', 'start_codon'))) %>% 
     filter(has_start_stop == 2)
-# calcualte cds lenghhs
+
+#create an exon id dummy column formated the same way in the transdecoder gff for exon number extraction in a later step
 base_dntx_gtf <- rtracklayer::readGFF(files$base_all_tissue_gtf) %>% 
     mutate(exon_id = paste0(transcript_id,'.',type, exon_number), 
            exon_id = replace(exon_id, !grepl('exon', exon_id), NA))  
 
 ref_gtf <- rtracklayer::readGFF(files$ref_GTF)
-
+# calcualte cds lengths, and remove CDS lengths that are 200 aa longer than the longest isoform of the parent gene
 ref_cds_lengths <- ref_gtf %>% 
     filter(transcript_type == 'protein_coding', type == 'CDS') %>% 
     mutate(length = end-start) %>% 
@@ -74,25 +75,73 @@ gff3_valid_clean <- agat_gff3 %>%
     mutate(transcript_type = 'protein_coding', 
            transcript_biotype = 'protein_coding',
            type = replace(type, type == 'mRNA', 'transcript')) %>% 
-    select(-Name, -Parent, -ID)
+    select(-Name, -Parent, -ID) %>% 
+    mutate(exon_number = str_split(exon_id, 'exon') %>% sapply(function(x) x[2]))
+### add the nc transcripts back in; note the exon number for these transcripts for the negative strand is in the wrong order 
+### ie the the exons are numberd based on coordinate order not exon order; transdecoder does the opposite, and we need the transdecoder version
+### for downstream analysis(and its just more right)
 nc_gtf <- base_dntx_gtf %>% 
     filter(!transcript_id %in% gff3_valid_clean$transcript_id) %>%
     mutate(transcript_type = 'noncoding',
            transcript_biotype = 'noncoding') %>% 
-    select(colnames(gff3_valid_clean))
-
+    select(colnames(gff3_valid_clean)) %>% 
+    mutate(exon_number = str_split(exon_id, 'exon') %>% sapply(function(x) x[2])) 
+nc_gtf_positive <- nc_gtf %>% filter(strand == '+')
+nc_gtf_negative_exons <- nc_gtf %>% filter(strand != '+', type == 'exon')%>% 
+    group_by(transcript_id) %>% 
+    do(mutate(., exon_number = rev(exon_number)) )
+nc_gtf_negative_nonexon <- nc_gtf %>% filter(strand != '+', type != 'exon')
+nc_gtf_complete <- bind_rows(nc_gtf_positive, nc_gtf_negative_nonexon, nc_gtf_negative_exons)
 
 tx2code <- base_dntx_gtf %>% filter(type == 'transcript') %>% select(transcript_id, class_code, oId) %>% distinct 
 clean_gtf <- bind_rows(gff3_valid_clean, nc_gtf) %>% 
     inner_join(tx2gene) %>% 
-    inner_join(tx2code) %>% 
-    mutate(exon_number = str_split(exon_id, 'exon') %>% sapply(function(x) x[2]))
+    inner_join(tx2code) 
+#### now fix CDS ends - the stop codon in gencode gtfs is not included as part of the cds, but is here
+#### for + strand genes, reduce end by three; for - strand genes increase start by three 
+#### in some corner cases this can produce end< start, after looking at a couple of cases, it looks all you have to do is remove them 
+clean_gtf_nocds <- filter(clean_gtf, type!= 'CDS')
+all_cds <- filter(clean_gtf, type == 'CDS')
+positve_cds <- filter(clean_gtf, type == 'CDS', strand == '+')
+negative_cds <- filter(clean_gtf, type == 'CDS', strand !='+')
+# on the positive strand, the cds with the largest end is the last one
+positve_cds_ends <-  positve_cds  %>% 
+    group_by(transcript_id) %>% 
+    summarise(seqid=seqid[which.max(end)], 
+              strand=strand[which.max(end)], 
+              start=start[which.max(end)], 
+              end=end[which.max(end)]) %>% 
+    mutate(is_terminal_cds=TRUE)
+#on the negative strand, the cds with the smallest start is the last one 
+negative_cds_ends <- negative_cds %>% 
+    group_by(transcript_id) %>% 
+    summarise(seqid=seqid[which.min(start)], 
+              strand=strand[which.min(start)], 
+              start=start[which.min(start)], 
+              end=end[which.min(start)]) %>% 
+    mutate(is_terminal_cds=TRUE)
 
+clean_cds_gtf<-  bind_rows(positve_cds_ends, negative_cds_ends) %>% 
+    distinct %>% 
+    left_join(all_cds, .) %>% 
+    mutate(is_terminal_cds = replace_na(is_terminal_cds, F), 
+           end = replace(end,strand == '+' & is_terminal_cds, end[strand == '+' & is_terminal_cds] -3 ), 
+           start = replace(start, strand !='+' & is_terminal_cds, start[ strand !='+' & is_terminal_cds] +3 )) %>% 
+    select(-is_terminal_cds) %>% 
+    filter(end>=start)
+####
+# enst_pc <- filter(ref_gtf, transcript_type == 'protein_coding') %>% pull(transcript_id) %>% unique 
+# bad_ref_tx <- filter(clean_cds_gtf, end<start, class_code == '=') %>% pull(transcript_id) %>% 
+#     {filter(conv_tab, transcript_id %in% ., refid %in% enst_pc )} 
+# i=6
+# filter(clean_cds_gtf, transcript_id == bad_ref_tx$transcript_id[i])->k
+# filter(ref_gtf, transcript_id == bad_ref_tx$refid[i], type == 'CDS')->j
 
+#####
 gene_gtf <- clean_gtf %>% filter(type == 'transcript') %>%  group_by(gene_name) %>% 
     summarise(seqid = first(seqid), source = first(source), type='gene', start = min(start), end  = max(end), 
               score = first(score), strand  = first(strand), phase = first(phase),gene_id = first(gene_id))
-final_gtf <- bind_rows(clean_gtf, gene_gtf) %>% 
+final_gtf <- bind_rows(clean_gtf_nocds, gene_gtf, clean_cds_gtf) %>% 
     mutate(seqid = factor(seqid, levels = levels(base_dntx_gtf$seqid))) %>% 
     arrange(seqid, start) 
 
@@ -109,6 +158,37 @@ final_gtf_sorted <- final_gtf %>%
     select(-exon_id) %>% 
     mutate(transcript_id = as.character(transcript_id), 
            transcript_id = replace(transcript_id, transcript_id == '^', NA))
+######## run a GTF integrety check against the gencode reference 
+# final_gtf_sorted <- rtracklayer::readGFF('/data/swamyvs/ocular_transcriptomes_pipeline/data/gtfs/all_tissues.combined_annotated.gtf')
+# tx2gene <- final_gtf_sorted  %>% filter(type == 'transcript') %>% select(transcript_id, gene_id, gene_name) %>% distinct
+sample_table <- read_tsv(files$sample_table)
+conv_tab <- fread(files$all2tissue_convtab, sep = '\t') %>% as_tibble %>% left_join(tx2gene %>% select(transcript_id, gene_name),.)
+check_type_integreity <- function(gencode, dntx, c_type){
+    gencode <- gencode %>% filter(type == c_type) %>% select(seqid, start, end) %>% mutate(seqid = as.character(seqid)) %>% arrange(start)
+    dntx <- dntx %>% filter(type == c_type) %>% select(seqid, start, end) %>% mutate(seqid = as.character(seqid)) %>% arrange(start)
+    res <- all(dim(gencode) == dim (dntx))
+    if(res) {res <- all(gencode == dntx)}
+    return(res)
+}
+pc_dntx <- filter(final_gtf_sorted, class_code == '=', transcript_type == 'protein_coding')
+pc_gencode <- filter(ref_gtf, transcript_type == 'protein_coding')
+common_pc_tx <- filter(conv_tab, transcript_id %in%pc_dntx$transcript_id, refid %in% pc_gencode$transcript_id) %>% 
+    select(transcript_id, refid)
+
+check_all_integrity <- function(gencode, dntx, txid, refid){
+    gencode <- gencode %>%  filter( transcript_id ==refid )
+    dntx <- dntx %>% filter(transcript_id == txid)
+    type_order <- c('transcript', 'exon', 'start_codon', 'CDS', 'stop_codon')
+    all(sapply(type_order, function(x) check_type_integreity(gencode, dntx, x)))
+}
+set.seed(34343434)
+samp <- common_pc_tx %>% sample_n(100)
+res <- sapply(1:nrow(samp),function(i) check_all_integrity(ref_gtf, final_gtf_sorted, txid = samp$transcript_id[i], refid = samp$refid[i])) 
+msg <- glue('{sum(res)} out of {length(res)} validated transcripts exact match reference')
+message(msg)
+stopifnot(all(final_gtf_sorted$end>=final_gtf_sorted$start))
+
+#### make tissue specifc GTFs ##########
 
 format_tissue_specific_info <- function(ctab, s_subtissue, t_gtf){
     master_ctab <- ctab %>% 
@@ -131,13 +211,10 @@ format_tissue_specific_info <- function(ctab, s_subtissue, t_gtf){
     return(TRUE)
 }
 
-# final_gtf_sorted <- rtracklayer::readGFF('/data/swamyvs/ocular_transcriptomes_pipeline/data/gtfs/all_tissues.combined_annotated.gtf')
-# tx2gene <- final_gtf_sorted  %>% filter(type == 'transcript') %>% select(transcript_id, gene_id, gene_name) %>% distinct
-sample_table <- read_tsv(files$sample_table)
-conv_tab <- fread(files$all2tissue_convtab, sep = '\t') %>% as_tibble %>% left_join(tx2gene %>% select(transcript_id, gene_name),.)
+
 subtissues <- unique(sample_table$subtissue)
 finished<- mclapply(subtissues, function(x) format_tissue_specific_info(conv_tab, x, final_gtf_sorted),
-         mc.cores = min(length(subtissues), 24)) 
+         mc.cores = min(length(subtissues), 12)) 
 stopifnot(all(finished %>% unlist))
 
 ############################################################

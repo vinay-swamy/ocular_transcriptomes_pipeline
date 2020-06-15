@@ -151,12 +151,12 @@ rule all:
         'data/rdata/novel_exon_classification.Rdata',
         'data/rdata/all_tissue_quant.Rdata',  
         'data/novel_loci/hmmer/seq_hits.tsv', 
-        'data/novel_loci/novel_loci_blast_results.tsv', 
+        'data/novel_loci/novel_loci_blast_results_nr.tsv', 
         'data/shiny_data/app_data/DNTX_db.sql',
         'data/rdata/pan_eye_quant.Rdata',
         expand('data/vep/{subtissue}/variant_summary.txt', subtissue = subtissues + ['gencode']), 
         calculate_cov_input(sample_dict, eye_tissues)
-     #'data/rmats/all_tissues_psi.tsv', 
+    #'data/rmats/all_tissues_psi.tsv', 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
@@ -200,6 +200,12 @@ rule downloadAnnotation:
         module load {samtools_version}
         samtools faidx ref/gencode_genome.fa
         awk '$3 == "transcript"' ref/gencode_comp_ano.gtf | cut -f1,7,4,5 > ref/gencode_comp_ano_trim.tsv
+        
+        wget -O ref/hg38_fair+new_CAGE_peaks_phase1and2.bed.gz https://fantom.gsc.riken.jp/5/datafiles/reprocessed/hg38_latest/extra/CAGE_peaks/hg38_fair+new_CAGE_peaks_phase1and2.bed.gz
+        wget -O /tmp/polya.bed.gz 'https://polyasite.unibas.ch/download/atlas/2.0/GRCh38.96/atlas.clusters.2.0.GRCh38.96.bed.gz'
+        python3 /data/swamyvs/ChromosomeMappings/convert_notation.py  -c /data/swamyvs/ChromosomeMappings/GRCh38_ensembl2gencode.txt -f /tmp/polya.bed.gz | bedtools sort -i stdin > ref/polyAtlas_gencodechrom_hg38_sorted.bed
+        
+        
         '''
 
 rule clean_phylop_and_snps:
@@ -304,7 +310,7 @@ rule merge_gtfs_to_tissue:
     shell:
         '''
         module load {gffcompare_version}
-        gffcompare --strict-match -r {ref_GTF} -T  -p {wildcards.subtissue} -o {params.outdir} {input.gtfs}
+        gffcompare -r {ref_GTF} -T  -p {wildcards.subtissue} -o {params.outdir} {input.gtfs}
         module load {R_version}
         Rscript scripts/filter_gtfs_by_tissue.R \
             --workingDir {working_dir} \
@@ -326,7 +332,7 @@ rule merge_all_gtfs:
     shell:
         '''
         module load {gffcompare_version}
-        gffcompare -r {ref_GTF} -T --strict-match -p DNTX -o data/gtfs/all_tissues {input.gtfs}
+        gffcompare -r {ref_GTF} -T -p DNTX -o data/gtfs/all_tissues {input.gtfs}
         module load {R_version}
         Rscript scripts/merge_tissue_gtfs.R  \
             --workingDir {working_dir} \
@@ -532,11 +538,13 @@ rule blastp_novel_loci:
     input: 
         pep='data/novel_loci/novel_loci.pep'
     output: 
-        results='data/novel_loci/novel_loci_blast_results.tsv'
+        swissprot_results='data/novel_loci/novel_loci_blast_results_swissprot.tsv',
+        nr_results = 'data/novel_loci/novel_loci_blast_results_nr.tsv'
     shell:
         '''
         module load blast
-        blastp -query {input.pep} -db /fdb/blastdb/swissprot  -max_target_seqs 250 -max_hsps 3 -outfmt "6 qseqid sseqid qlen slen nident evalue bitscore"  -num_threads 8 > {output.results}
+        blastp -query {input.pep} -db /fdb/blastdb/swissprot  -max_target_seqs 250 -max_hsps 3 -outfmt "6 qseqid sseqid qlen slen nident evalue bitscore"  -num_threads 8 > {output.swissprot_results}
+        blastp -query {input.pep} -db /fdb/blastdb/nr  -max_target_seqs 250 -max_hsps 3 -outfmt "6 qseqid sseqid qlen slen nident evalue bitscore"  -num_threads 8 > {output.nr_results}
         '''
 
 rule build_pfm_hmmDB:
@@ -562,10 +570,6 @@ rule run_hmmscan:
          module load {hmmer_version}
          hmmscan --cpu 24 --tblout {output.tab} --domtblout {output.dom} --pfamtblout {output.pfm} {input.pfam} {input.pep}
          '''
-
-
-
-
 
 
 rule prep_shiny_data:
@@ -599,18 +603,8 @@ rule prep_shiny_data:
         module load {bedtools_version}
         Rscript scripts/prep_data_for_shiny.R \
             --workingDir {working_dir} \
-            --gtfFile {input.ano_gtf} \
-            --refGtf {ref_GTF} \
-            --tcons2mstrgFile {input.tc2m} \
-            --quantFile {input.all_exp_file} \
-            --sampleTableFile {sample_file} \
             --ddStem {params.dd_stem} \
-            --snpsBed {input.snps} \
-            --phylopBed {input.pp} \
-            --gff3File {input.gff3} \
-            --outRdata {output.rdata_file} \
-            --outDbFile {output.db_file} \
-            --outDlDataFolder {output.dl_data_dir}
+            --filesYaml {file_yaml}
         for gtf in data/shiny_data/dl_data/*.gtf 
         do 
             stem=${{gtf::-4}}

@@ -22,3 +22,6 @@ all_tissue_quant: data/rdata/all_tissue_quant.Rdata
 eye_quant: data/rdata/pan_eye_quant.Rdata
 gencode_quant: data/rdata/gencode_quant.Rdata
 novel_loci_bed: data/novel_loci/novel_loci.sorted.bed
+shiny_db: data/shiny_data/app_data/DNTX_db.sql
+shiny_rdata: data/shiny_data/app_data/shiny_data.Rdata
+shiny_dl_dir: data/shiny_data/dl_data/

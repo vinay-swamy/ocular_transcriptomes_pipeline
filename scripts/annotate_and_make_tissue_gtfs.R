@@ -12,9 +12,9 @@ parser$add_argument('--fileYaml', action = 'store', dest = 'file_yaml')
 parser$add_argument('--agatGff', action  = 'store', dest = 'agat_gff3_file')
 list2env(parser$parse_args(), .GlobalEnv)
 ######
-working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
-file_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
-agat_gff3_file <- 'tmp/agat/gtf_startstop_added.gff'
+# working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
+# file_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
+# agat_gff3_file <- 'tmp/agat/gtf_startstop_added.gff'
 ###### 
 
 
@@ -24,7 +24,7 @@ files <- read_yaml(file_yaml)
 filt_gtf_path <- files$raw_gtf_path
 final_gtf_path <-files$final_gtf_path
 
-#read in agat gff, compare its annotated start stops to actual cds,  remove cds that shirnk/grow too much and then 
+#read in agat gff, compare its annotated start stops to actual cds, remove cds that shirnk/grow too much and then 
 # appropriately reclassify everything 
 agat_gff3 <- rtracklayer::readGFF(agat_gff3_file) %>% as_tibble %>% 
     unnest(Parent) %>%  
@@ -203,7 +203,7 @@ format_tissue_specific_info <- function(ctab, s_subtissue, t_gtf){
         filter(gene_name %in% tissue_conv$gene_name)
     final_gtf_file <- glue('{final_gtf_path}{s_subtissue}.gtf')
     write_gtf3(df = tissue_gtf, final_gtf_file)
-    det_df <- apply(tissue_conv[,-(1:3)],2, function(x) !is.na(x))
+    det_df <- apply(tissue_conv[,-(1:3)],2, function(x) x!='')
     colnames(det_df) <- colnames(tissue_conv)[-(1:3)]
     det_df <- det_df %>% as_tibble %>% bind_cols(tissue_conv[,1:2], .)
     fwrite(det_df,glue('{final_gtf_path}{s_subtissue}.detdf'), sep = '\t')
@@ -214,7 +214,7 @@ format_tissue_specific_info <- function(ctab, s_subtissue, t_gtf){
 
 subtissues <- unique(sample_table$subtissue)
 finished<- mclapply(subtissues, function(x) format_tissue_specific_info(conv_tab, x, final_gtf_sorted),
-         mc.cores = min(length(subtissues), 12)) 
+         mc.cores = 12) 
 stopifnot(all(finished %>% unlist))
 
 ############################################################
@@ -222,8 +222,8 @@ stopifnot(all(finished %>% unlist))
 ############################################################
 
 load(files$ref_tx_exon_rdata)
-# gfc_gtf <- rtracklayer::readGFF('data/gtfs/all_tissues.combined_annotated.gtf') %>% 
-#     select(-is.singleExon, -is.last, -is.first, -novel_exon_id, -novel_exon_type)
+
+conv_tab <- fread(files$all2tissue_convtab, sep = '\t') %>% as_tibble %>% left_join(tx2gene %>% select(transcript_id, gene_name),.)
 gfc_gtf <- final_gtf_sorted
 
 novel_transcripts <- filter(gfc_gtf, !class_code %in% c('=', 'u'), type == 'transcript') 
@@ -401,10 +401,16 @@ save(uniq_start_multi_gene,
 tcons2mstrg <- gfc_gtf_full %>% filter(type == 'transcript') %>%  select(transcript_id, oId) %>% distinct
 exon_info <- novel_exons_TSES %>% select(seqid, strand, start, end, novel_exon_id=id, novel_exon_type=nv_type_rc)
 last_exons <- gfc_gtf %>% filter(type == 'exon') %>% 
-    select(seqid, strand, start, end, transcript_id) %>% 
+    filter(type == 'exon') %>% 
+    select(seqid, strand, start, end, exon_number,transcript_id) %>% 
     group_by(transcript_id) %>% 
-    summarise(seqid=last(seqid), strand=last(strand), start=last(start), end=last(end)) %>%
+    summarise(seqid=seqid[which.max(exon_number)], 
+              strand=strand[which.max(exon_number)], 
+              start=start[which.max(exon_number)], 
+              end=end[which.max(exon_number)], 
+              transcript_id=transcript_id[which.max(exon_number)]) %>%
     mutate(is.last='TRUE')
+    
 single_exons <- gfc_gtf %>% filter(type == 'exon') %>% group_by(transcript_id) %>% summarise(count=n()) %>% 
     filter(count == 1) %>% pull(transcript_id)
 
@@ -423,8 +429,8 @@ complete_gtf <- gfc_gtf %>%
     left_join(first_exon_df) %>% 
     mutate(is.last=replace_na(is.last, 'FALSE'),is.singleExon=ifelse(transcript_id %in% single_exons, 'TRUE', 'FALSE'), 
            is.first = replace_na(is.first, 'FALSE'))
-
-write_gtf3(complete_gtf, files$anno_all_tissue_gtf)                                 
+save.image('testing/aamtg.Rdata')
+write_gtf3(complete_gtf, files$anno_all_tissue_gtf)                     
 
 
 

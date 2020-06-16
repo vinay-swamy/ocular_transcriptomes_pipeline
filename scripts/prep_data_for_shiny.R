@@ -1,34 +1,35 @@
 library(tidyverse)
+library(data.table)
 library(matrixStats)
 library(RBedtools)
 library(DBI)
 library(parallel)
 library(argparse)
+library(yaml)
 
 parser <- ArgumentParser()
 parser$add_argument('--workingDir', action = 'store', dest = 'working_dir')
-parser$add_argument('--gtfFile', action = 'store', dest  = 'gtf_file')
-parser$add_argument('--tcons2mstrgFile', action = 'store', dest = 'tc2m_file')
-parser$add_argument('--quantFile', action = 'store', dest = 'quant_file')
-parser$add_argument('--sampleTableFile',action  = 'store', dest = 'sample_file')
 parser$add_argument('--ddStem', action = 'store', dest = 'dd_stem')
-parser$add_argument('--snpsBed', action = 'store', dest = 'snps_bed')
-parser$add_argument('--phylopBed', action = 'store', dest = 'phylop_bed')
-parser$add_argument('--gff3File', action = 'store', dest = 'gff3_file')
-parser$add_argument('--outRdata', action = 'store', dest = 'out_rdata')
-parser$add_argument('--outDbFile', action = 'store', dest = 'out_db_file')
-parser$add_argument('--outDlDataFolder', action = 'store', dest = 'out_df_data_folder')
-parser$add_argument('--refGtf', action = 'store', dest = 'ref_gtf_file')
+parser$add_argument('--filesYaml', action = 'store', dest = 'files_yaml')
 
+#######
+working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
+files_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
+dd_stem <- 'data/gtfs/final_tissue_gtfs/REPLACE.detdf'
+#######
 list2env(parser$parse_args(), .GlobalEnv)
-save.image('testing/pdfs_args.Rdata')
 source('~/scripts/write_gtf.R')
 
+files <- read_yaml(files_yaml)
+
 setwd(working_dir)
-save(args, file='testing/pdfs_args.Rdata')
+
 process_det_files <- function(det_file, tissue){
     df <- read_tsv(det_file) %>% select(transcript_id, everything())
-    num_det <- df[,-1] %>% rowSums() %>% {tibble(transcript_id=df$transcript_id, !!tissue :=. )} 
+    num_det <- df %>% 
+      mutate(!!tissue:= rowSums(.[,-(1:2)])) %>% 
+      select(transcript_id, !!tissue)
+      
     return(num_det)
 }
 
@@ -54,10 +55,13 @@ replace_nan <- function(df) {
     
 }
 
+message('tidying data')
+gtf <- rtracklayer::readGFF(files$anno_all_tissue_gtf)
+convtab <- fread(files$all2tissue_convtab) %>% as_tibble
+dntx2enst <- convtab %>% filter(class_code == '=') %>% select(transcript_id, new_tx_id = refid)
+gtf <- gtf %>% left_join(dntx2enst) %>% mutate(new_tx_id= replace(new_tx_id, is.na(new_tx_id), transcript_id[is.na(new_tx_id)]))
 
-gtf <- rtracklayer::readGFF(gtf_file)
-gtf <- gtf %>% mutate(new_tx_id= replace(oId, !grepl('ENST', oId), transcript_id[!grepl('ENST', oId)]))
-
+### despite my best efforts, its possiblt for multiple DNTX transcripts to match a single reference tx
 double_tx <- gtf %>% 
     filter(type == 'exon') %>% 
     group_by(new_tx_id) %>% 
@@ -65,7 +69,7 @@ double_tx <- gtf %>%
     filter(bad > 1) %>% pull(new_tx_id) %>% 
     {filter(gtf, new_tx_id %in% ., type == 'transcript')} %>% 
     select(seqid, strand, start, end, transcript_id, new_tx_id)
-ref_gtf <- rtracklayer::readGFF(ref_gtf_file) 
+ref_gtf <- rtracklayer::readGFF(files$ref_GTF) 
 ref_double_tx <- ref_gtf %>%  filter(transcript_id %in% double_tx$new_tx_id, type == 'transcript') %>% 
     select(seqid, strand, start, end, new_tx_id=transcript_id)
 matching_tx <- inner_join(double_tx, ref_double_tx) 
@@ -80,15 +84,10 @@ gtf$new_tx_id[rep_bool] <- gtf$transcript_id[rep_bool]
 
 
 tx2strand <- gtf %>% select(transcript_id, strand) %>% distinct
-gff3 <- rtracklayer::readGFF(gff3_file) %>%
-    as_tibble %>%
-    mutate(transcript_id=str_extract(ID,'DNTX_[0-9]+|ENSG[0-9]+'), type=as.character(type)) %>%
-    filter(type == 'CDS') %>% 
-    select(-strand) %>% 
-    left_join(tx2strand)
-sample_table <- read_tsv(sample_file) %>% filter(subtissue != 'synth')
+
+sample_table <- read_tsv(files$sample_table_file) %>% filter(subtissue != 'synth')
 subtissues <- unique(sample_table$subtissue)
-tc2m <- read_tsv(tc2m_file)
+
 t2g <- gtf %>% filter(type == 'transcript') %>% select(transcript_id, gene_name,new_tx_id) %>% distinct
 
 unique_exons <- gtf %>% filter(type == 'exon') %>%
@@ -100,25 +99,25 @@ uexon_bed <- unique_exons %>% mutate(score = 999) %>% select(seqid,start, end, e
 test_bed <- unique_exons %>% sample_n(1000) %>% mutate(score = 999) %>% select(seqid,start, end, exon_id, score, strand)
 write_tsv(test_bed, 'testing/gtf_bed_for_testing.bed', col_names = F)
 
-exon_pp_bed <- RBedtools('intersect', options = '-wa -wb -sorted', output = 'stdout', a=uexon_bed, b=phylop_bed) %>%
-        RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 11 -o mean',i= .) %>%
-        to_data_frame %>%
-        select(exon_id=X4, mean_phylop_score=X7)
-
-
-# intersect with strand specific
-exon_snp_bed <- RBedtools('intersect', options = ' -s -wa -wb -sorted ', output = 'stdout', a=uexon_bed, b=snps_bed) %>%
-    RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 10 -o collapse ',i= .) %>%
-    to_data_frame %>%
-    select(exon_id=X4, snps=X7)
-save(exon_pp_bed, exon_snp_bed, file = 'testing/exons_snps_phylop.Rdata')
-#load('testing/exons_snps_phylop.Rdata')
+# exon_pp_bed <- RBedtools('intersect', options = '-wa -wb -sorted', output = 'stdout', a=uexon_bed, b=phylop_bed) %>%
+#         RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 11 -o mean',i= .) %>%
+#         to_data_frame %>%
+#         select(exon_id=X4, mean_phylop_score=X7)
+# 
+# 
+# # intersect with strand specific
+# exon_snp_bed <- RBedtools('intersect', options = ' -s -wa -wb -sorted ', output = 'stdout', a=uexon_bed, b=snps_bed) %>%
+#     RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 10 -o collapse ',i= .) %>%
+#     to_data_frame %>%
+#     select(exon_id=X4, snps=X7)
+# save(exon_pp_bed, exon_snp_bed, file = 'testing/exons_snps_phylop.Rdata')
+load('testing/exons_snps_phylop.Rdata')
 all_det <- lapply(subtissues, function(tis) 
                     gsub(pattern = 'REPLACE', replacement = tis, x = dd_stem) %>% {process_det_files(.,tis)}) %>% 
     reduce(full_join) %>% inner_join(t2g, .)
 all_det[is.na(all_det)] <- 0    
 
-
+message('calculating PIU')
 samples_per_tissue <-  sample_table %>% group_by(subtissue) %>% summarise(count=n()) %>% filter(subtissue %in% subtissues)# REMOVE ME
 samples_per_tissue_list <- 1/samples_per_tissue$count
 names(samples_per_tissue_list) <- samples_per_tissue$subtissue
@@ -129,7 +128,7 @@ frac_samp_det <- frac_samp_det %>% as_tibble() %>% bind_cols(all_det[,c('transcr
 
 
 
-load(quant_file)
+load(files$all_tissue_quant)
 all_quant[is.na(all_quant)] <- 0
 message('The following samples are missing from the quant file:')
 print(filter(sample_table, !sample %in% colnames(all_quant)))
@@ -153,10 +152,10 @@ gtf <- gtf %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) %>% 
 frac_samp_det <- frac_samp_det %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) 
 all_det <-  all_det %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) 
 piu <- piu %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) 
-tc2m <- tc2m %>% inner_join(t2g, .) %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) 
-tissue_det <- tc2m %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>% as_tibble %>% bind_cols(tc2m[,1:3],.) 
-cds_df <- gff3 %>% inner_join(t2g) %>% select(-transcript_id, -Parent) %>% rename(transcript_id = new_tx_id) %>% 
-    mutate(seqid=as.character(seqid))
+convtab <- convtab %>% inner_join(t2g, .) %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) 
+tissue_det <- convtab %>% select(subtissues) %>% apply(2, function(x) !is.na(x)) %>% as_tibble %>% bind_cols(convtab[,1:3],.) 
+cds_df <- gtf %>%  
+    mutate(seqid=as.character(seqid)) %>% filter(type == 'CDS') %>% select(-is.last,-is.singleExon, -is.first, -contains('novel'))
 exon_info_df <- left_join(exon_pp_bed, exon_snp_bed) 
 ## fix gtf gene_name column
 
@@ -166,7 +165,7 @@ gtf <- gtf %>% select(-gene_name) %>% inner_join(gtf_t2g)
 
 
 
-#---- precalculating data for ap data for app
+#---- precalculating data for shiny app
 # I wanted to add thick lines to indicate where the CDS of transcripts is, like commonly seen in genome browsers
 
 ## First for each transcript I identify which exon the CDS start is on, and which exon the CDS end is on 
@@ -232,7 +231,7 @@ gtf <- gtf %>% left_join(which_exon_overlaps_start) %>% left_join(which_exon_ove
     mutate(is_CDS_start=replace_na(is_CDS_start, F), is_CDS_end=replace_na(is_CDS_end, F))
 ## Next, this function scales the genomic lengthsload for each gene, and adds in thick starts for protein coding transcripts 
 save.image('testing/pre_plotting_gtf_image.Rdata')
-
+message('running app data precalculation')
 make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_end, which_exon_overlaps_start,  gene){
     #print(gene)
     gtf_gene <- filter(gtf, gene_name == gene)
@@ -262,7 +261,7 @@ make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_en
         return()
     }
     
-    #t_tx <- "ENST00000426976.1"
+    #t_tx <- "DNTX_00083370"
     ### this adds the thick start for each transcript. For most genes its easy, but there are many corner cases
     merge_CDS_scaled_exons <- function(gtf_gene, scaled_exons, which_exon_overlaps_start, which_exon_overlaps_end,
                                        cds_df_gene, cds_se_gene, t_tx){
@@ -388,7 +387,7 @@ make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_en
         return(complete_df)
     }
     
-    PC_tx <- gtf_gene$transcript_id
+    PC_tx <- unique(gtf_gene$transcript_id)
     res <- lapply(PC_tx, function(tx) merge_CDS_scaled_exons(gtf_gene = gtf_gene, 
                                                              scaled_exons = scaled_exons, 
                                                              which_exon_overlaps_start = which_exon_overlaps_start, 
@@ -399,15 +398,18 @@ make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_en
     return(res)
 }
 
-all_genes <- gtf %>% pull(gene_name) %>% unique()
+set.seed(10021)
+all_genes <- gtf %>%  pull(gene_name) %>% unique()
 plotting_gtf <- mclapply(all_genes, function(gene) 
-  make_plotting_gtf_by_gene(gtf = gtf, cds_df = cds_df, cds_se = cds_se, 
+      make_plotting_gtf_by_gene(gtf = gtf, cds_df = cds_df, cds_se = cds_se, 
                                  which_exon_overlaps_end = which_exon_overlaps_end,
                                  which_exon_overlaps_start = which_exon_overlaps_start,
                                  gene = gene
-                                 ),mc.cores = 48
-                         ) %>% bind_rows 
-save(plotting_gtf, file='testing/plotting_gtf_list.Rdata')
+                                 ),
+      mc.cores = 12) #%>% bind_rows 
+save.image('testing/plotting_gtf_list.Rdata')
+plotting_gtf <- bind_rows(plotting_gtf)
+
 #add transcript0_ids back in, sort and add exon tooltips
 plotting_gtf <- plotting_gtf %>% 
     bind_rows(gtf %>% filter(type == 'transcript', transcript_id %in% plotting_gtf$transcript_id )) %>% 
@@ -418,11 +420,11 @@ plotting_gtf <- plotting_gtf %>%
            ttip=gsub('snps: NA', '', ttip), 
            ttip=gsub('mean phylop score: NA\n', '', ttip))
  
-
+message('plotting gtf successfully made. Generating DB')
 #save(plotting_gtf, file = 'data/shiny_data/plotting_GTF.Rdata')
 #----
 save.image('testing/all_prepped_shiny_data.Rdata')
-con <- dbConnect(RSQLite::SQLite(), out_db_file)
+con <- dbConnect(RSQLite::SQLite(), files$shiny_db)
 dbWriteTable(con, 'gtf', gtf)
 dbSendQuery(con, 'CREATE INDEX gtf_ind ON gtf (gene_name, transcript_id)')
 dbWriteTable(con, 'frac_samp_det', frac_samp_det)
@@ -431,7 +433,7 @@ dbWriteTable(con, 'all_det', all_det)
 dbSendQuery(con, 'CREATE INDEX all_det_ind ON all_det (gene_name, transcript_id)')
 dbWriteTable(con, 'piu', piu)
 dbSendQuery(con, 'CREATE INDEX piu_ind ON piu (gene_name, transcript_id)')
-dbWriteTable(con, 'tc2m', tc2m)
+dbWriteTable(con, 'tc2m', convtab)
 dbSendQuery(con, 'CREATE INDEX tc2m_ind ON tc2m (gene_name, transcript_id)')
 dbWriteTable(con, 'tissue_det', tissue_det)
 dbSendQuery(con, 'CREATE INDEX tissue_det_ind ON tissue_det (gene_name, transcript_id)')
@@ -446,19 +448,19 @@ all_gene_names <- unique(plotting_gtf$gene_name)
 all_tissues <- subtissues 
 #save(gtf, all_det, frac_samp_det, piu, tc2m,tissue_det, file=outfile)
 
-save(all_gene_names, all_tissues, file = out_rdata)
+save(all_gene_names, all_tissues, file = files$shiny_rdata)
 
 #now make data for downloading from shiny app
 #----
 ##panbody
-write_gtf3(gtf, paste0(out_df_data_folder, '/panbody.gtf'))
+write_gtf3(gtf, paste0(files$shiny_dl_dir, '/panbody.gtf'))
 ##paneye
 eye_subtissues <- c('Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 
                  'RPE_Adult.Tissue', 'RPE_Fetal.Tissue',
                  'Cornea_Adult.Tissue', 'Cornea_Fetal.Tissue')
 eye_tissues <- c('Retina', 'Cornea', 'RPE')
 get_tx_in_tissues <- function(tissues){
-    tc2m %>% 
+    convtab %>% 
         select(transcript_id, !!tissues) %>%
         mutate(det=rowSums(.[,-1] %>% apply(2, function(x) !is.na(x)))) %>%
         filter(det >0) %>%
@@ -466,46 +468,32 @@ get_tx_in_tissues <- function(tissues){
 }
 
 get_tx_in_one_tissue <- function(tissues){
-    tc2m %>% 
+    convtab %>% 
         select(transcript_id, !!tissues) %>%
         filter(!is.na(.[,2])) %>%
         pull(transcript_id)
 }
 
 paneye_gtf <- filter(gtf, transcript_id %in% get_tx_in_tissues(eye_subtissues))
-write_gtf3(paneye_gtf, paste0(out_df_data_folder, '/paneye.gtf'))
+write_gtf3(paneye_gtf, paste0(files$shiny_dl_dir, '/paneye.gtf'))
 
 lapply(eye_subtissues, function(tis) 
         {t_gtf <- filter(gtf, transcript_id %in% get_tx_in_one_tissue(tis)) 
         dim(t_gtf) 
-        write_gtf3(t_gtf, paste0(out_df_data_folder,'/', tis, '.gtf' ))
+        write_gtf3(t_gtf, paste0(files$shiny_dl_dir,'/', tis, '.gtf' ))
         }
     )
 
 
 lapply(eye_tissues, function(tis)
         {
-    cols <- tc2m %>% select(contains(tis)) %>% colnames
+    cols <- convtab %>% select(contains(tis)) %>% colnames
     ad_col <- which(grepl('Adult', cols))
     fet_col <- which(grepl('Fetal', cols))
     t_gtf <- filter(gtf,transcript_id %in% get_tx_in_tissues(cols) )
-        write_gtf3(t_gtf, paste0(out_df_data_folder,'/',cols[ad_col], '-', cols[fet_col], '.gtf' ))
+        write_gtf3(t_gtf, paste0(files$shiny_dl_dir,'/',cols[ad_col], '-', cols[fet_col], '.gtf' ))
                 
         }
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

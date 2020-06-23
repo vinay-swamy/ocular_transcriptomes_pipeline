@@ -13,9 +13,9 @@ parser$add_argument('--ddStem', action = 'store', dest = 'dd_stem')
 parser$add_argument('--filesYaml', action = 'store', dest = 'files_yaml')
 
 #######
-working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
-files_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
-dd_stem <- 'data/gtfs/final_tissue_gtfs/REPLACE.detdf'
+# working_dir <- '/data/swamyvs/ocular_transcriptomes_pipeline/'
+#files_yaml <- '/data/swamyvs/ocular_transcriptomes_pipeline/files.yaml'
+# dd_stem <- 'data/gtfs/final_tissue_gtfs/REPLACE.detdf'
 #######
 list2env(parser$parse_args(), .GlobalEnv)
 source('~/scripts/write_gtf.R')
@@ -99,19 +99,19 @@ uexon_bed <- unique_exons %>% mutate(score = 999) %>% select(seqid,start, end, e
 test_bed <- unique_exons %>% sample_n(1000) %>% mutate(score = 999) %>% select(seqid,start, end, exon_id, score, strand)
 write_tsv(test_bed, 'testing/gtf_bed_for_testing.bed', col_names = F)
 
-# exon_pp_bed <- RBedtools('intersect', options = '-wa -wb -sorted', output = 'stdout', a=uexon_bed, b=phylop_bed) %>%
-#         RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 11 -o mean',i= .) %>%
-#         to_data_frame %>%
-#         select(exon_id=X4, mean_phylop_score=X7)
-# 
-# 
-# # intersect with strand specific
-# exon_snp_bed <- RBedtools('intersect', options = ' -s -wa -wb -sorted ', output = 'stdout', a=uexon_bed, b=snps_bed) %>%
-#     RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 10 -o collapse ',i= .) %>%
-#     to_data_frame %>%
-#     select(exon_id=X4, snps=X7)
-# save(exon_pp_bed, exon_snp_bed, file = 'testing/exons_snps_phylop.Rdata')
-load('testing/exons_snps_phylop.Rdata')
+exon_pp_bed <- RBedtools('intersect', options = '-wa -wb -sorted', output = 'stdout', a=uexon_bed, b=files$phylop_scores) %>%
+        RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 11 -o mean',i= .) %>%
+        to_data_frame %>%
+        select(exon_id=X4, mean_phylop_score=X7)
+
+
+# intersect with strand specific
+exon_snp_bed <- RBedtools('intersect', options = ' -s -wa -wb -sorted ', output = 'stdout', a=uexon_bed, b=files$snps_locs) %>%
+    RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 10 -o collapse ',i= .) %>%
+    to_data_frame %>%
+    select(exon_id=X4, snps=X7)
+save(exon_pp_bed, exon_snp_bed, file = 'testing/exons_snps_phylop.Rdata')
+#load('testing/exons_snps_phylop.Rdata')
 all_det <- lapply(subtissues, function(tis) 
                     gsub(pattern = 'REPLACE', replacement = tis, x = dd_stem) %>% {process_det_files(.,tis)}) %>% 
     reduce(full_join) %>% inner_join(t2g, .)

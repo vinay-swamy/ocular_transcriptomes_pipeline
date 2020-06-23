@@ -140,7 +140,7 @@
 	{
 		"mem" : "120G",
 		"time" : "24:00:00",
-		"cpus-per-task" : "32"
+		"cpus-per-task" : "16"
 	},
 	"run_vep":
 	{

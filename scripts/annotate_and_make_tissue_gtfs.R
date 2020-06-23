@@ -305,17 +305,18 @@ gfc_gtf_full <-  gfc_gtf_ano %>%
 ###
 #This is only looking at NOVEL starts and ends 
 ###
+## group transcripts with the same TSS together, and generate a set of unique TSS
 same_start <-  gfc_gtf_full %>% filter(exon_number==1) %>%
     select(seqid, strand, start, end, gene_name) %>% distinct %>%  
     group_by(seqid, strand ,start) %>% 
     summarise(count=n(), max_end=max(end), s_gene_name=first(gene_name)) %>% filter( count >1)
-
 uniq_starts <- gfc_gtf_full %>% filter(exon_number==1) %>%
     select(seqid, strand, start, end, gene_name) %>% distinct %>% 
     anti_join(same_start) %>% 
     bind_rows(., same_start %>% select(seqid, strand, start, end=max_end, gene_name=s_gene_name))
 
 multi_start_genes <- uniq_starts %>% group_by(gene_name) %>% summarise(count=n()) %>% filter(count >1) %>% pull(gene_name)
+
 uniq_start_multi_gene <- novel_exons %>% mutate(novel_start=nvl_start) %>% filter(novel_start) %>% 
     select(seqid, strand, start, novel_start) %>% distinct %>%  
     left_join(uniq_starts, .) %>% mutate(novel_start=replace_na(novel_start, F)) %>% filter(gene_name %in% multi_start_genes)
@@ -358,45 +359,6 @@ save(uniq_start_multi_gene,
 ##this should have: transcript_type:pc, or not pc., exon_coding as well as is.novel exon, 
 ##novel exon type, first or last exon, single exon
 
-
-### is the novel exon in the cds part 3 -  only check if the novel regions of novel exons are actually in the CDS
-# gff3 <- rtracklayer::readGFF(gff3_file) %>% as_tibble %>%
-#     mutate(ID=str_extract(ID,'DNTX_[0-9]+|ENSG[0-9]+'), type=as.character(type))
-# cds_bed <- gff3 %>% filter(type == 'CDS') %>% 
-#     group_by(ID) %>% 
-#     summarise(seqid=first(seqid), strand=first(strand), start=min(start), end=max(end)) %>% 
-#     mutate(score=999) %>% 
-#     select(seqid, start, end, transcript_id=ID, score, strand) %>% 
-#     from_data_frame %>% 
-#     RBedtools('sort', i=.)
-# exon_bed <- all_exons %>% mutate(score=888) %>% 
-#     select(seqid, start, end, origin, score, strand) %>% 
-#     from_data_frame %>% 
-#     RBedtools('sort', i=.)
-# 
-# novel_exons_tx <- novel_exons_TSES %>% 
-#     inner_join(gfc_gtf %>% filter(type == 'exon') %>% select( seqid,strand, start, end, transcript_id ))
-# novel_seq_bed <- novel_exons_tx  %>% 
-#     mutate(score= 777, cp_id=paste(id, transcript_id, sep = ';')) %>% # join novel exon id and txid
-#     select(seqid, start, end, cp_id, score, strand) %>% 
-#     from_data_frame %>% 
-#     RBedtools('sort',output = 'stdout', i=.) %>% 
-#     RBedtools('subtract', options = '-s',output = 'stdout',  a=., b=exon_bed) %>% 
-#     RBedtools('intersect', options = '-s -wo', a=., b=cds_bed) %>%
-#     to_data_frame
-# 
-# 
-# exon_locations <- novel_seq_bed %>% 
-#     mutate(transcript_id= str_split(X4, ';') %>% sapply(function(x) x[2]),
-#            id=str_split(X4, ';') %>% sapply(function(x) x[1])) %>% 
-#     filter(transcript_id == X10) %>% 
-#     select(id, transcript_id) %>% 
-#     mutate(exon_location='CDS') %>% 
-#     left_join(novel_exons_tx,.) %>% 
-#     mutate(exon_location= case_when(is.na(exon_location) & (!transcript_id %in% gff3$ID) ~ 'NC', 
-#                                     is.na(exon_location) & (transcript_id %in% gff3$ID)  ~ 'UTR',
-#                                     TRUE ~ exon_location)
-#     ) %>% distinct
 
 tcons2mstrg <- gfc_gtf_full %>% filter(type == 'transcript') %>%  select(transcript_id, oId) %>% distinct
 exon_info <- novel_exons_TSES %>% select(seqid, strand, start, end, novel_exon_id=id, novel_exon_type=nv_type_rc)

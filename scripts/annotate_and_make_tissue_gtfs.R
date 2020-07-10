@@ -57,26 +57,27 @@ ref_cds_lengths <- ref_gtf %>%
     summarise(max_length = max(length), min_length = min(length) )
 tx2gene <- base_dntx_gtf %>% filter(type == 'transcript') %>% select(transcript_id, gene_id, gene_name) %>% distinct %>% 
     mutate(gene_name = replace(gene_name, is.na(gene_name), transcript_id[is.na(gene_name)]))
-co <- 200
-dntx_lengthcomp_fail <- agat_gff3 %>% 
-    filter(transcript_id %in% gff3_has_valid_start_stop$transcript_id, type == 'CDS') %>% 
-    mutate(length = end-start) %>% 
-    group_by(transcript_id) %>% 
-    summarise(length = (sum(length )+n()) / 3)%>% 
-    inner_join(tx2gene,.) %>% 
-    inner_join(ref_cds_lengths) %>% 
-    mutate(max_diff = length - max_length, min_diff = length - min_length) %>% 
-    filter(max_diff >co | min_diff < -co)
+# co <- 200
+# dntx_lengthcomp_fail <- agat_gff3 %>% 
+#     filter(transcript_id %in% gff3_has_valid_start_stop$transcript_id, type == 'CDS') %>% 
+#     mutate(length = end-start) %>% 
+#     group_by(transcript_id) %>% 
+#     summarise(length = (sum(length )+n()) / 3)%>% 
+#     inner_join(tx2gene,.) %>% 
+#     inner_join(ref_cds_lengths) %>% 
+#     mutate(max_diff = length - max_length, min_diff = length - min_length) %>% 
+#     filter(max_diff >co | min_diff < -co)
 
 gff3_valid_clean <- agat_gff3 %>% 
     filter(type !='gene', 
            transcript_id %in% gff3_has_valid_start_stop$transcript_id, 
-          !transcript_id %in% dntx_lengthcomp_fail$transcript_id) %>% 
+          #!transcript_id %in% dntx_lengthcomp_fail$transcript_id
+          ) %>% 
     mutate(transcript_type = 'protein_coding', 
            transcript_biotype = 'protein_coding',
            type = replace(type, type == 'mRNA', 'transcript')) %>% 
     select(-Name, -Parent, -ID) %>% 
-    mutate(exon_number = str_split(exon_id, 'exon') %>% sapply(function(x) x[2]))
+    mutate(exon_number = str_split(exon_id, 'exon') %>% sapply(function(x) x[2]) %>% as.numeric)
 ### add the nc transcripts back in; note the exon number for these transcripts for the negative strand is in the wrong order 
 ### ie the the exons are numberd based on coordinate order not exon order; transdecoder does the opposite, and we need the transdecoder version
 ### for downstream analysis(and its just more right)
@@ -85,7 +86,7 @@ nc_gtf <- base_dntx_gtf %>%
     mutate(transcript_type = 'noncoding',
            transcript_biotype = 'noncoding') %>% 
     select(colnames(gff3_valid_clean)) %>% 
-    mutate(exon_number = str_split(exon_id, 'exon') %>% sapply(function(x) x[2])) 
+    mutate(exon_number = str_split(exon_id, 'exon') %>% sapply(function(x) x[2]) %>% as.numeric) 
 nc_gtf_positive <- nc_gtf %>% filter(strand == '+')
 nc_gtf_negative_exons <- nc_gtf %>% filter(strand != '+', type == 'exon')%>% 
     group_by(transcript_id) %>% 
@@ -94,7 +95,7 @@ nc_gtf_negative_nonexon <- nc_gtf %>% filter(strand != '+', type != 'exon')
 nc_gtf_complete <- bind_rows(nc_gtf_positive, nc_gtf_negative_nonexon, nc_gtf_negative_exons)
 
 tx2code <- base_dntx_gtf %>% filter(type == 'transcript') %>% select(transcript_id, class_code, oId) %>% distinct 
-clean_gtf <- bind_rows(gff3_valid_clean, nc_gtf) %>% 
+clean_gtf <- bind_rows(gff3_valid_clean, nc_gtf_complete) %>% 
     inner_join(tx2gene) %>% 
     inner_join(tx2code) 
 #### now fix CDS ends - the stop codon in gencode gtfs is not included as part of the cds, but is here

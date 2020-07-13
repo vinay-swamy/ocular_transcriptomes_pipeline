@@ -154,7 +154,7 @@ rule all:
         'data/novel_loci/novel_loci_blast_results_nr.tsv', 
         'data/shiny_data/app_data/DNTX_db.sql',
         'data/rdata/pan_eye_quant.Rdata',
-        expand('data/vep/{subtissue}/variant_summary.txt', subtissue = subtissues + ['gencode']), 
+        expand('data/vep/{subtissue}/variant_summary.txt', subtissue = ['Retina_Fetal.Tissue', 'Retina_Adult.Tissue', 'gencode']), 
         calculate_cov_input(sample_dict, eye_tissues)
     #'data/rmats/all_tissues_psi.tsv', 
     #expand('data/gtfs/raw_tissue_gtfs/{subt}.combined.gtf', subt=subtissues)
@@ -205,9 +205,30 @@ rule downloadAnnotation:
         wget -O /tmp/polya.bed.gz 'https://polyasite.unibas.ch/download/atlas/2.0/GRCh38.96/atlas.clusters.2.0.GRCh38.96.bed.gz'
         python3 /data/swamyvs/ChromosomeMappings/convert_notation.py  -c /data/swamyvs/ChromosomeMappings/GRCh38_ensembl2gencode.txt -f /tmp/polya.bed.gz | bedtools sort -i stdin > ref/polyAtlas_gencodechrom_hg38_sorted.bed
         
-        
+        wget -O - ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_19/GRCh37.p13.genome.fa.gz | gunzip -c - > ref/hg19_gencode_genome.fa 
+
+        wget -O ref/hg19ToHg38.over.chain.gz http://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz
+
         '''
 
+rule liftover_intronic_variants:
+    input:
+        files['intron_variant_panel']
+    output:
+        hg19_vcf = 'data/intron_variant_analyis/retinal_dystrophy_nc_variant_panel_hg19.vcf',
+        hg38_vcf = files['intron_variant_hg38_vcf']
+    shell:
+        '''
+        python3 scripts/panel_variants_to_vcf.py  \
+            --panel {input} \
+            --hg19genome {files[hg19_genome]} \
+            --outvcf {output.hg19_vcf}
+        module load crossmap/0.4.0
+        crossmap vcf /data/swamyvs/ocular_transcriptomes_pipeline/ref/hg19ToHg38.over.chain.gz \
+            {output.hg19_vcf} \
+            {ref_genome} \
+            {output.hg38_vcf}
+        '''
 rule clean_phylop_and_snps:
     input: 
         snps=expand('ref/snps/bed_chr_{chrom}.bed.gz', chrom=list(range(23))[1:]), 
@@ -438,6 +459,7 @@ rule process_and_annotate_master_gtf:
 
 rule run_vep:
     input:
+        vcf =files['intron_variant_hg38_vcf'],
         gtf = 'data/gtfs/final_tissue_gtfs/{subtissue}.gtf'
     output: 
         gtf = 'data/gtfs/CDS_complete/{subtissue}.gtf.gz',
@@ -451,7 +473,7 @@ rule run_vep:
         grep -v "#" {input.gtf} | sort -k1,1 -k4,4n -k5,5n -t$'\\t' | bgzip -c > {output.gtf}
         tabix -p gff {output.gtf}
         echo "running VEP"
-        vep -i {clinvar_data} --gtf {output.gtf} --fasta {ref_genome} -o {output.variant_summary}
+        vep -i {input.vcf} --gtf {output.gtf} --fasta {ref_genome} -o {output.variant_summary}
         '''
 
 

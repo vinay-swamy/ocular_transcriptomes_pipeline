@@ -25,3 +25,6 @@ novel_loci_bed: data/novel_loci/novel_loci.sorted.bed
 shiny_db: data/shiny_data/app_data/DNTX_db.sql
 shiny_rdata: data/shiny_data/app_data/shiny_data.Rdata
 shiny_dl_dir: data/shiny_data/dl_data/
+intron_variant_panel: ref/retinal_dystrophy_nc_variant_panel.txt
+hg19_genome: ref/hg19_gencode_genome.fa
+intron_variant_hg38_vcf: 'data/intron_variant_analyis/retinal_dystrophy_nc_variant_panel_hg38.vcf'

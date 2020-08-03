@@ -232,36 +232,96 @@ gtf <- gtf %>% left_join(which_exon_overlaps_start) %>% left_join(which_exon_ove
 ## Next, this function scales the genomic lengthsload for each gene, and adds in thick starts for protein coding transcripts 
 save.image('testing/pre_plotting_gtf_image.Rdata')
 message('running app data precalculation')
+# NOTE:
+#   The some cases of plotting gtf will produce extra exons, specifcallt when the CDS starts/ends in the middle of an exon. 
+#   This is the right behavior, and exon numbers are preserved
+
+
 make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_end, which_exon_overlaps_start,  gene){
     #print(gene)
+    #gene <- 'ABCA4'
     gtf_gene <- filter(gtf, gene_name == gene)
     cds_se_gene <- filter(cds_se, gene_name == gene)
     cds_df_gene <- filter(cds_df, gene_name == gene)
     t_gtf_exons <- filter(gtf_gene, type == 'exon') %>% mutate(length=sqrt(end-start))
     gap=mean(t_gtf_exons$length)
     ### only scale distinct exons 
-    scale_intron_lengths <- function(df, scale_factor, ymin, ymax){
-        gtf_exons <- df %>% 
-            select(seqid, strand, start, end) %>% 
-            distinct %>% 
-            mutate(length=end-start, length=sqrt(length), Xmin=0, Xmax=0, Ymin=ymin, Ymax=ymax) %>% 
-            arrange(start)
-        
-        gtf_exons[1,'Xmax'] <- gtf_exons[1,'Xmin'] + gtf_exons[1,'length']
-        if(nrow(gtf_exons) > 1){
-            for(i in 2:nrow(gtf_exons)){
-                gtf_exons[i,'Xmin'] <- gtf_exons[(i-1),'Xmax'] + scale_factor 
-                gtf_exons[i,'Xmax'] <- gtf_exons[i,'Xmin'] + gtf_exons[i,'length']
-            }
+    # scale_exon_lengths <- function(df, scale_factor, ymin, ymax){
+    #     df <- t_gtf_exons
+    #     scale_factor <- gap
+    #     ymin <- -.5
+    #     ymax <- .5
+    #     gtf_exons <- df %>% 
+    #         select(seqid, strand, start, end) %>% 
+    #         distinct %>% 
+    #         mutate(length=end-start, length=sqrt(length), Xmin=0, Xmax=0, Ymin=ymin, Ymax=ymax) %>% 
+    #         arrange(start)
+    #     
+    #     gtf_exons[1,'Xmax'] <- gtf_exons[1,'Xmin'] + gtf_exons[1,'length']
+    #     if(nrow(gtf_exons) > 1){
+    #         for(i in 2:nrow(gtf_exons)){
+    #             gtf_exons[i,'Xmin'] <- gtf_exons[(i-1),'Xmax'] + scale_factor 
+    #             gtf_exons[i,'Xmax'] <- gtf_exons[i,'Xmin'] + gtf_exons[i,'length']
+    #         }
+    #     }
+    #     return(gtf_exons)
+    # }
+    scale_exon_lengths <- function(df, scale_factor, ymin, ymax){
+      # df <- t_gtf_exons
+      # scale_factor <- gap
+      # ymin <- -.5
+      # ymax <- .5
+      n_gtf_exons <- df %>% 
+        select(seqid,  start, end) %>% 
+        distinct %>% 
+        arrange(start)
+      bed <- n_gtf_exons %>% select(seqid, start, end) %>% 
+        from_data_frame() %>% 
+        RBedtools('sort', output = 'stdout', i=.) %>% 
+        RBedtools('merge', i=. ) %>% 
+        to_data_frame %>%
+        as_tibble %>% 
+        select(seqid = X1, start=X2, end=X3) %>% 
+        mutate(
+               length=end-start, length=sqrt(length), Xmin=0, Xmax=0, Ymin=ymin, Ymax=ymax)
+      
+      
+      bed[1,'Xmax'] <- bed[1,'Xmin'] + bed[1,'length']
+      if(nrow(bed) > 1){
+        for(i in 2:nrow(bed)){
+          bed[i,'Xmin'] <- bed[(i-1),'Xmax'] + scale_factor 
+          bed[i,'Xmax'] <- bed[i,'Xmin'] + bed[i,'length']
         }
-        return(gtf_exons)
+      }
+      exact_match <- inner_join(n_gtf_exons, bed)    
+      no_match <- anti_join(n_gtf_exons, bed)    
+      
+      
+      fix <- function(bed, k){
+          k_start <- k$start
+          b <- k_start-bed$start
+          b[b<0] <- Inf
+          which_closest <- which.min(b)
+          k_fix <- bed[which_closest,] %>% mutate(Xmin = sqrt(k_start-start) + Xmin, 
+                                                  Xmax = Xmin + sqrt(k$end - k$start), 
+                                                  start = k$start, end=k$end)
+          
+         }
+      fin <- lapply(1:nrow(no_match),function(i) fix(bed, no_match[i,]) ) %>% 
+        bind_rows(exact_match) %>% arrange(start)
+      min_igap <- {fin$start[2:nrow(fin)] - fin$end[1:(nrow(fin )-1)]} %>% {abs(.)} %>% min
+      if(min_igap <gap){
+            write(gene, 'data/shiny_data/debug/igap_below_gap.txt', sep = '\n', append = T)
+            return(tibble())
+          }
+      return(fin)
     }
-    scaled_exons <- scale_intron_lengths(t_gtf_exons, gap,-.5,.5 )
+    scaled_exons <- scale_exon_lengths(t_gtf_exons, gap,-.5,.5 )
     if(nrow(cds_df) == 0) {
         return()
     }
     
-    #t_tx <- "DNTX_00083370"
+    #t_tx <-  "DNTX_00008583" 
     ### this adds the thick start for each transcript. For most genes its easy, but there are many corner cases
     merge_CDS_scaled_exons <- function(gtf_gene, scaled_exons, which_exon_overlaps_start, which_exon_overlaps_end,
                                        cds_df_gene, cds_se_gene, t_tx){

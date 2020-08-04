@@ -29,3 +29,5 @@ phylop_bs_url: 'http://hgdownload.cse.ucsc.edu/goldenpath/hg38/phyloP20way/hg38.
 snps_dir_url: 'ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh38p7/BED/'
 clinvar_variant_url: 'ftp://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz'
 file_yaml: files.yaml
+bedops_version: bedops/2.4.39
+ucsc_version: ucsc/401

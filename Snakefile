@@ -102,7 +102,7 @@ def make_tx_fasta_input(st):
         return f'data/gtfs/final_tissue_gtfs/{st}.gtf'
 def calculate_cov_input(sample_dict, eye_tissues):
     eye_tissues = set(eye_tissues)
-    return [f'data/novel_loci/cov/{id}/cov.per-base.bed.gz' for id in sample_dict.keys() if sample_dict[id]['subtissue'] in eye_tissues ]
+    return [f'data/gene_cov/{id}_cov.per-base.bed.gz' for id in sample_dict.keys() if sample_dict[id]['subtissue'] in eye_tissues ]
 
 
 with open(config['file_yaml']) as fyml:
@@ -130,6 +130,7 @@ samtools_version=config['samtools_version']
 gffcompare_version=config['gffcompare_version']
 mosdepth_version=config['mosdepth_version']
 bedtools_version=config['bedtools_version']
+bedops_version = config['bedops_version']
 clinvar_data=config['clinvar_vcf']
 file_yaml = config['file_yaml']
 #python_env=config['python_env']
@@ -152,7 +153,7 @@ rule all:
         'data/rdata/all_tissue_quant.Rdata',  
         'data/novel_loci/hmmer/seq_hits.tsv', 
         'data/novel_loci/novel_loci_blast_results_nr.tsv', 
-        'data/shiny_data/app_data/DNTX_db.sql',
+        #'data/shiny_data/app_data/DNTX_db.sql',
         'data/rdata/pan_eye_quant.Rdata',
         expand('data/vep/{subtissue}/variant_summary.txt', subtissue = ['Retina_Fetal.Tissue', 'Retina_Adult.Tissue', 'gencode']), 
         calculate_cov_input(sample_dict, eye_tissues)
@@ -191,7 +192,7 @@ rule downloadAnnotation:
         wget -O - {config[refseq_ncbi_url]} | gunzip -c - > {output.refseq}
         wget -O {input.clinvar_sum} {config[clinvar_variant_url]}
         module load mysql
-        module load ucsc
+        module load {config[ucsc_version]}
         mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -N -e "select * from refGene" hg38 |\
         cut -f2- | genePredToGtf -source=hg38.refGene.ucsc file stdin {output.ucsc}
         module load python/3.6
@@ -240,9 +241,9 @@ rule clean_phylop_and_snps:
         '''
         rm -rf snp_tmp
         mkdir snp_tmp
-        module load ucsc
-        module load bedops
-        moulde load bedtools
+        module load {config[ucsc_version]}
+        module load {bedops_version}
+        moulde load {bedtools_version}
         bigWigToWig {input.pp} | wig2bed | bedtools sort -i - | gzip -c - > {output.pp}
         for i in ref/snps/bed_chr_*.bed.gz ; do zcat $i | tail -n+2   > snp_tmp/snps.bed 
         awk '$2 != $3{OFS="\t"; print $0}' snp_tmp/snps.bed  > snp_tmp/good_snps.bed 
@@ -477,12 +478,26 @@ rule run_vep:
         '''
 
 
+rule get_genes_for_cov_analysis:
+    input: full_gtf = files['anno_all_tissue_gtf']
+    output: 'data/gene_cov/regions.bed'
+    shell:
+        '''
+        for gene in ABCA4 IFT140 PROM1 RPGRIP1 
+        do 
+            grep $gene {input.full_gtf}|\
+            cut -f1 -d';'  |\
+            awk -v OFS='\t' '$3 == "exon"{print $1,$4,$5,$10}' |\
+            tr -d '"'
+        done > {output}
+        '''
+
 rule intersect_coverage:
     input:
         cov = 'coverage_files/{id}/cov.per-base.bed.gz', 
-        bed =  files['novel_loci_bed']
+        bed =  'data/gene_cov/regions.bed'
     output:
-        'data/novel_loci/cov/{id}/cov.per-base.bed.gz'
+        'data/gene_cov/{id}_cov.per-base.bed.gz'
     shell:
         '''
         module load {bedtools_version}
@@ -621,6 +636,7 @@ rule prep_shiny_data:
         touch data/shiny_data/debug/failed_to_find_CDS_start_or_end.txt
         touch data/shiny_data/debug/special_is_funky.txt
         touch data/shiny_data/debug/bad_genes.txt
+        touch data/shiny_data/debug/igap_below_gap.txt
         module load {R_version}
         module load {bedtools_version}
         Rscript scripts/prep_data_for_shiny.R \
@@ -637,8 +653,3 @@ rule prep_shiny_data:
         '''
 
 #note: need to to copy gtf instead of symlinking because snakemake wigs out about times stamps 
-
-
-
-
-

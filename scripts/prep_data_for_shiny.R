@@ -235,228 +235,171 @@ message('running app data precalculation')
 # NOTE:
 #   The some cases of plotting gtf will produce extra exons, specifcallt when the CDS starts/ends in the middle of an exon. 
 #   This is the right behavior, and exon numbers are preserved
-
-
+#   Reworked 08/04/2020 - add CDS, then take use squarte distance. Intron scaling is now handled by the app
 make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_end, which_exon_overlaps_start,  gene){
-    #print(gene)
-    #gene <- 'ABCA4'
-    gtf_gene <- filter(gtf, gene_name == gene)
-    cds_se_gene <- filter(cds_se, gene_name == gene)
-    cds_df_gene <- filter(cds_df, gene_name == gene)
-    t_gtf_exons <- filter(gtf_gene, type == 'exon') %>% mutate(length=sqrt(end-start))
-    gap=mean(t_gtf_exons$length)
-    ### only scale distinct exons 
-    # scale_exon_lengths <- function(df, scale_factor, ymin, ymax){
-    #     df <- t_gtf_exons
-    #     scale_factor <- gap
-    #     ymin <- -.5
-    #     ymax <- .5
-    #     gtf_exons <- df %>% 
-    #         select(seqid, strand, start, end) %>% 
-    #         distinct %>% 
-    #         mutate(length=end-start, length=sqrt(length), Xmin=0, Xmax=0, Ymin=ymin, Ymax=ymax) %>% 
-    #         arrange(start)
-    #     
-    #     gtf_exons[1,'Xmax'] <- gtf_exons[1,'Xmin'] + gtf_exons[1,'length']
-    #     if(nrow(gtf_exons) > 1){
-    #         for(i in 2:nrow(gtf_exons)){
-    #             gtf_exons[i,'Xmin'] <- gtf_exons[(i-1),'Xmax'] + scale_factor 
-    #             gtf_exons[i,'Xmax'] <- gtf_exons[i,'Xmin'] + gtf_exons[i,'length']
-    #         }
-    #     }
-    #     return(gtf_exons)
-    # }
-    scale_exon_lengths <- function(df, scale_factor, ymin, ymax){
-      # df <- t_gtf_exons
-      # scale_factor <- gap
-      # ymin <- -.5
-      # ymax <- .5
-      n_gtf_exons <- df %>% 
-        select(seqid,  start, end) %>% 
-        distinct %>% 
-        arrange(start)
-      bed <- n_gtf_exons %>% select(seqid, start, end) %>% 
-        from_data_frame() %>% 
-        RBedtools('sort', output = 'stdout', i=.) %>% 
-        RBedtools('merge', i=. ) %>% 
-        to_data_frame %>%
-        as_tibble %>% 
-        select(seqid = X1, start=X2, end=X3) %>% 
-        mutate(
-               length=end-start, length=sqrt(length), Xmin=0, Xmax=0, Ymin=ymin, Ymax=ymax)
+  
+  gtf_gene <- filter(gtf, gene_name == gene)
+  cds_se_gene <- filter(cds_se, gene_name == gene)
+  cds_df_gene <- filter(cds_df, gene_name == gene)
+  if(nrow(cds_df) == 0) {
+    return()
+  }
+  ### this adds the thick start for each transcript. For most genes its easy, but there are many corner cases
+  merge_CDS_scaled_exons <- function(gtf_gene, which_exon_overlaps_start, which_exon_overlaps_end,
+                                     cds_df_gene, cds_se_gene, t_tx){
+    #print(t_tx) 
+    # in order to create thick lines for CDS, we have to first get the CDS locations, and when the start and end 
+    # are in the middle of an exon, split that exon into 2 features.
+    scaled_exons_tx <- filter(gtf_gene, type == 'exon', transcript_id == t_tx) %>% 
+      mutate(Xmax=0, Xmin=0, Ymin=-.5, Ymax=.5)
+    if(any(duplicated(scaled_exons_tx$exon_number)) ){ #in a single transcript no transcript should have the same start or end 
       
-      
-      bed[1,'Xmax'] <- bed[1,'Xmin'] + bed[1,'length']
-      if(nrow(bed) > 1){
-        for(i in 2:nrow(bed)){
-          bed[i,'Xmin'] <- bed[(i-1),'Xmax'] + scale_factor 
-          bed[i,'Xmax'] <- bed[i,'Xmin'] + bed[i,'length']
-        }
+      write(t_tx, file = 'data/shiny_data/debug/multi_tx_under_same_id.txt', append = T, sep = '\n')# multiple transcripts under same id
+      return(tibble())
+    }
+    cds_df_tx <- filter(cds_df_gene, transcript_id ==t_tx ) %>% select(seqid, strand, start, end)
+    cds_se_tx <- filter(cds_se_gene, transcript_id  == t_tx)
+    which_exon_CDS_start <- which_exon_overlaps_start %>% filter(transcript_id == t_tx)
+    which_exon_CDS_end <-   which_exon_overlaps_end %>% filter(transcript_id == t_tx)
+    # this indicates the transcript id was not found in the CDS df, and so must not be protein coding
+    if(nrow(cds_se_tx) == 0){
+      #write(t_tx, file = 'data/shiny_data/debug/no_cds_bu_marked_as_pc.txt', append = T, sep = '\n')
+      return(scaled_exons_tx)
+    }
+    # this means we failed to identify which exon the CDS start /end is on int the previous step
+    if(nrow(which_exon_CDS_end) == 0 | nrow(which_exon_CDS_start) == 0){
+      write(t_tx, file = 'data/shiny_data/debug/failed_to_find_CDS_start_or_end.txt', append = T, sep = '\n')
+      return(tibble())
+    }
+    
+    # if the cds starts and ends on the same exon, which is always the case for single exon transcripts 
+    if(nrow(anti_join(which_exon_CDS_start, which_exon_CDS_end)) == 0 ){# if the cds starts and ends on the same exon
+      special_exon <- scaled_exons_tx %>% inner_join(which_exon_CDS_start)
+      if(nrow(cds_se_tx) == 0){
+        write(t_tx, file = 'data/shiny_data/debug/special_is_funky.txt', append = T, sep = '\n')
+        return(tibble())
       }
-      exact_match <- inner_join(n_gtf_exons, bed)    
-      no_match <- anti_join(n_gtf_exons, bed)    
-      
-      
-      fix <- function(bed, k){
-          k_start <- k$start
-          b <- k_start-bed$start
-          b[b<0] <- Inf
-          which_closest <- which.min(b)
-          k_fix <- bed[which_closest,] %>% mutate(Xmin = sqrt(k_start-start) + Xmin, 
-                                                  Xmax = Xmin + sqrt(k$end - k$start), 
-                                                  start = k$start, end=k$end)
+      # the CDS starts/ ends on the exact same location as the exon its on
+      if(special_exon$start == cds_se_tx$cds_start | special_exon$end == cds_se_tx$cds_end){
+        # single exon and CDS are the exact same 
+        if(special_exon$start == cds_se_tx$cds_start & special_exon$end == cds_se_tx$cds_end){
+          complete_df <- special_exon %>% mutate(Ymin=-1, Ymax =1)  
+        } else if(special_exon$start == cds_se_tx$cds_start){ # both of these are of either the CDS start /end are on the location
+          #print('here')
+          cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
+                                             Xmax= Xmin + sqrt(end-start), 
+                                             Ymax=1, Ymin=-1)
           
-         }
-      fin <- lapply(1:nrow(no_match),function(i) fix(bed, no_match[i,]) ) %>% 
-        bind_rows(exact_match) %>% arrange(start)
-      min_igap <- {fin$start[2:nrow(fin)] - fin$end[1:(nrow(fin )-1)]} %>% {abs(.)} %>% min
-      if(min_igap <gap){
-            write(gene, 'data/shiny_data/debug/igap_below_gap.txt', sep = '\n', append = T)
-            return(tibble())
-          }
-      return(fin)
-    }
-    scaled_exons <- scale_exon_lengths(t_gtf_exons, gap,-.5,.5 )
-    if(nrow(cds_df) == 0) {
-        return()
-    }
-    
-    #t_tx <-  "DNTX_00008583" 
-    ### this adds the thick start for each transcript. For most genes its easy, but there are many corner cases
-    merge_CDS_scaled_exons <- function(gtf_gene, scaled_exons, which_exon_overlaps_start, which_exon_overlaps_end,
-                                       cds_df_gene, cds_se_gene, t_tx){
-        #print(t_tx) 
-        # in order to create thick lines for CDS, we have to first get the CDS locations, and when the start and end 
-        # are in the middle of an exon, split that exon into 2 features.
-        scaled_exons_tx <- filter(gtf_gene, type == 'exon', transcript_id == t_tx) %>% inner_join(scaled_exons)
-        if(any(duplicated(scaled_exons_tx$exon_number)) ){ #in a single transcript no transcript should have the same start or end 
-            
-            write(t_tx, file = 'data/shiny_data/debug/multi_tx_under_same_id.txt', append = T, sep = '\n')# multiple transcripts under same id
-            return(tibble())
+          split_end_nc_start <- special_exon  %>% mutate(start = cds_se_tx$cds_end+ 1, 
+                                                         Xmin=cds_mid$Xmax, 
+                                                         Xmax=Xmin + sqrt(end-start))
+          complete_df <- bind_rows( cds_mid, split_end_nc_start)
+          
+        }else{#special_exon$end == cds_se_tx$cds_end
+          offset <- (cds_se_tx$cds_start - special_exon$start - 1 )
+          split_start_nc_end <- special_exon %>% mutate(end= start + offset, Xmax= Xmin + sqrt(end-start))
+          cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
+                                             Xmin=split_start_nc_end$Xmax, Xmax= Xmin + sqrt(end-start), 
+                                             Ymax=1, Ymin=-1)
+          complete_df <- bind_rows(split_start_nc_end, cds_mid)
         }
-        cds_df_tx <- filter(cds_df_gene, transcript_id ==t_tx ) %>% select(seqid, strand, start, end)
-        cds_se_tx <- filter(cds_se_gene, transcript_id  == t_tx)
-        which_exon_CDS_start <- which_exon_overlaps_start %>% filter(transcript_id == t_tx)
-        which_exon_CDS_end <-   which_exon_overlaps_end %>% filter(transcript_id == t_tx)
-        # this indicates the transcript id was not found in the CDS df, and so must not be protein coding
-        if(nrow(cds_se_tx) == 0){
-            #write(t_tx, file = 'data/shiny_data/debug/no_cds_bu_marked_as_pc.txt', append = T, sep = '\n')
-            return(scaled_exons_tx)
-        }
-        # this means we failed to identify which exon the CDS start /end is on int the previous step
-        if(nrow(which_exon_CDS_end) == 0 | nrow(which_exon_CDS_start) == 0){
-            write(t_tx, file = 'data/shiny_data/debug/failed_to_find_CDS_start_or_end.txt', append = T, sep = '\n')
-            return(tibble())
-        }
+      }else{
+        offset <- (cds_se_tx$cds_start - special_exon$start - 1 )
+        split_start_nc_end <- special_exon %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
+        cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
+                                           Xmin=split_start_nc_end$Xmax, Xmax= Xmin + sqrt(end-start), 
+                                           Ymax=1, Ymin=-1)
+        offset <- special_exon$end - cds_se_tx$cds_end
+        split_end_nc_start <- special_exon  %>% mutate(start = cds_se_tx$cds_end+ 1, 
+                                                       Xmin=cds_mid$Xmax, 
+                                                       Xmax=Xmin + sqrt(offset))
         
-        # if the cds starts and ends on the same exon, which is always the case for single exon transcripts 
-        if(nrow(anti_join(which_exon_CDS_start, which_exon_CDS_end)) == 0 ){# if the cds starts and ends on the same exon
-            special_exon <- scaled_exons_tx %>% inner_join(which_exon_CDS_start)
-            if(nrow(cds_se_tx) == 0){
-                write(t_tx, file = 'data/shiny_data/debug/special_is_funky.txt', append = T, sep = '\n')
-                return(tibble())
-            }
-            # the CDS starts/ ends on the exact same location as the exon its on
-            if(special_exon$start == cds_se_tx$cds_start | special_exon$end == cds_se_tx$cds_end){
-                # single exon and CDS are the exact same 
-                if(special_exon$start == cds_se_tx$cds_start & special_exon$end == cds_se_tx$cds_end){
-                    complete_df <- special_exon %>% mutate(Ymin=-1, Ymax =1)  
-                } else if(special_exon$start == cds_se_tx$cds_start){ # both of these are of either the CDS start /end are on the location
-                    #print('here')
-                    cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
-                                                       Xmax= Xmin + sqrt(end-start), 
-                                                       Ymax=1, Ymin=-1)
-                    
-                    split_end_nc_start <- special_exon  %>% mutate(start = cds_se_tx$cds_end+ 1, 
-                                                                   Xmin=cds_mid$Xmax, 
-                                                                   Xmax=Xmin + sqrt(end-start))
-                    complete_df <- bind_rows( cds_mid, split_end_nc_start)
-                    
-                }else{#special_exon$end == cds_se_tx$cds_end
-                    offset <- (cds_se_tx$cds_start - special_exon$start - 1 )
-                    split_start_nc_end <- special_exon %>% mutate(end= start + offset, Xmax= Xmin + sqrt(end-start))
-                    cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
-                                                       Xmin=split_start_nc_end$Xmax, Xmax= Xmin + sqrt(end-start), 
-                                                       Ymax=1, Ymin=-1)
-                    complete_df <- bind_rows(split_start_nc_end, cds_mid)
-                }
-            }else{
-                offset <- (cds_se_tx$cds_start - special_exon$start - 1 )
-                split_start_nc_end <- special_exon %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
-                cds_mid <- special_exon %>% mutate(start=cds_df_tx$start, end=cds_df_tx$end, 
-                                                   Xmin=split_start_nc_end$Xmax, Xmax= Xmin + sqrt(end-start), 
-                                                   Ymax=1, Ymin=-1)
-                offset <- special_exon$end - cds_se_tx$cds_end
-                split_end_nc_start <- special_exon  %>% mutate(start = cds_se_tx$cds_end+ 1, 
-                                                               Xmin=cds_mid$Xmax, 
-                                                               Xmax=Xmin + sqrt(offset))
-
-                complete_df <- bind_rows(split_start_nc_end, cds_mid, split_end_nc_start) %>% arrange(start)
-            }
-            return(complete_df)
-        }
-        
-        both <- bind_rows(which_exon_CDS_start, which_exon_CDS_end)
-        both[is.na(both)] <- F
-        exact_match <-  inner_join(scaled_exons_tx, cds_df_tx) %>% mutate(Ymin=-1, Ymax=1)
-        non_match <- anti_join(scaled_exons_tx, cds_df_tx) %>%  inner_join(both) %>% arrange(start)
-        not_cds <- anti_join(scaled_exons_tx, cds_df_tx) %>%  anti_join(both)
-        
-        # there are three cases for the spliting start and end problem for multi exon CDSs
-        if(nrow(non_match) == 2){
-            # both the start and the end land in the middle of an exon, so we have to adjust both
-            offset <- (cds_se_tx$cds_start - non_match$start[1] -1)
-            split_start_nc_end <- non_match[1,] %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
-            split_start_cds_start <- non_match[1,] %>% mutate(start= start +offset + 1, Xmin = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
-            merged_starts <- bind_rows(split_start_nc_end, split_start_cds_start)
-            
-            
-            offset <- non_match$end[2] - cds_se_tx$cds_end
-            split_end_cds_end <- non_match[2,] %>% mutate(end = start + offset, Xmax = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
-            split_end_nc_start <- non_match[2,] %>% mutate(start = start + offset + 1, Xmin=Xmin + sqrt(offset))
-            merged_ends <- bind_rows(split_end_cds_end, split_end_nc_start)
-            
-            complete_df <- bind_rows(not_cds, exact_match, merged_starts, merged_ends) %>% arrange(start)
-        } else if(nrow(non_match) == 1){
-            #either the start or the end matches perfectly with an exon, and the other is in the middle 
-            start_in_middle <- non_match %>% inner_join(which_exon_CDS_start)
-            end_in_middle <- non_match %>% inner_join(which_exon_CDS_end)
-            if(nrow(start_in_middle)!= 0){
-                offset <- (cds_se_tx$cds_start - non_match$start[1] -1)
-                split_start_nc_end <- non_match[1,] %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
-                split_start_cds_start <- non_match[1,] %>% mutate(start= start +offset + 1, Xmin = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
-                merged <- bind_rows(split_start_nc_end, split_start_cds_start)
-                
-            }else{
-                offset <- non_match$end[1] - cds_se_tx$cds_end
-                split_end_cds_end <- non_match[1,] %>% mutate(end = start + offset, Xmax = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
-                split_end_nc_start <- non_match[1,] %>% mutate(start = start + offset + 1, Xmin=Xmin + sqrt(offset))
-                merged <- bind_rows(split_end_cds_end, split_end_nc_start)
-                
-            }
-            complete_df <- bind_rows(not_cds, exact_match, merged)
-            
-        } else if(nrow(non_match) == 0){
-            #both the start and the end exact match the exons, so nothing to do but bind them all together 
-            complete_df <- bind_rows(not_cds, exact_match)
-        } else {# nothing should ever get here 
-            write(gene,file = 'data/shiny_data/debug/bad_genes.txt', sep = '\n', append = T)
-            return(tibble())
-        }
-        
-        return(complete_df)
+        complete_df <- bind_rows(split_start_nc_end, cds_mid, split_end_nc_start) %>% arrange(start)
+      }
+      return(complete_df)
     }
     
-    PC_tx <- unique(gtf_gene$transcript_id)
-    res <- lapply(PC_tx, function(tx) merge_CDS_scaled_exons(gtf_gene = gtf_gene, 
-                                                             scaled_exons = scaled_exons, 
-                                                             which_exon_overlaps_start = which_exon_overlaps_start, 
-                                                             which_exon_overlaps_end = which_exon_overlaps_end,
-                                                             cds_df_gene = cds_df_gene, 
-                                                             cds_se_gene = cds_se_gene, 
-                                                             t_tx = tx)) %>% bind_rows()
-    return(res)
+    both <- bind_rows(which_exon_CDS_start, which_exon_CDS_end)
+    both[is.na(both)] <- F
+    exact_match <-  inner_join(scaled_exons_tx, cds_df_tx) %>% mutate(Ymin=-1, Ymax=1)
+    non_match <- anti_join(scaled_exons_tx, cds_df_tx) %>%  inner_join(both) %>% arrange(start)
+    not_cds <- anti_join(scaled_exons_tx, cds_df_tx) %>%  anti_join(both)
+    
+    # there are three cases for the spliting start and end problem for multi exon CDSs
+    if(nrow(non_match) == 2){
+      # both the start and the end land in the middle of an exon, so we have to adjust both
+      offset <- (cds_se_tx$cds_start - non_match$start[1] -1)
+      split_start_nc_end <- non_match[1,] %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
+      split_start_cds_start <- non_match[1,] %>% mutate(start= start +offset + 1, Xmin = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
+      merged_starts <- bind_rows(split_start_nc_end, split_start_cds_start)
+      
+      
+      offset <- non_match$end[2] - cds_se_tx$cds_end
+      split_end_cds_end <- non_match[2,] %>% mutate(end = start + offset, Xmax = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
+      split_end_nc_start <- non_match[2,] %>% mutate(start = start + offset + 1, Xmin=Xmin + sqrt(offset))
+      merged_ends <- bind_rows(split_end_cds_end, split_end_nc_start)
+      
+      complete_df <- bind_rows(not_cds, exact_match, merged_starts, merged_ends) %>% arrange(start)
+    } else if(nrow(non_match) == 1){
+      #either the start or the end matches perfectly with an exon, and the other is in the middle 
+      start_in_middle <- non_match %>% inner_join(which_exon_CDS_start)
+      end_in_middle <- non_match %>% inner_join(which_exon_CDS_end)
+      if(nrow(start_in_middle)!= 0){
+        offset <- (cds_se_tx$cds_start - non_match$start[1] -1)
+        split_start_nc_end <- non_match[1,] %>% mutate(end= start + offset, Xmax= Xmin + sqrt(offset))
+        split_start_cds_start <- non_match[1,] %>% mutate(start= start +offset + 1, Xmin = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
+        merged <- bind_rows(split_start_nc_end, split_start_cds_start)
+        
+      }else{
+        offset <- non_match$end[1] - cds_se_tx$cds_end
+        split_end_cds_end <- non_match[1,] %>% mutate(end = start + offset, Xmax = Xmin + sqrt(offset), Ymin=-1, Ymax=1)
+        split_end_nc_start <- non_match[1,] %>% mutate(start = start + offset + 1, Xmin=Xmin + sqrt(offset))
+        merged <- bind_rows(split_end_cds_end, split_end_nc_start)
+        
+      }
+      complete_df <- bind_rows(not_cds, exact_match, merged)
+      
+    } else if(nrow(non_match) == 0){
+      #both the start and the end exact match the exons, so nothing to do but bind them all together 
+      complete_df <- bind_rows(not_cds, exact_match)
+    } else {# nothing should ever get here 
+      write(gene,file = 'data/shiny_data/debug/bad_genes.txt', sep = '\n', append = T)
+      return(tibble())
+    }
+    
+    return(complete_df)
+  }
+  PC_tx <- unique(gtf_gene$transcript_id)
+  res <- lapply(PC_tx, function(tx) merge_CDS_scaled_exons(gtf_gene = gtf_gene, 
+                                                           #scaled_exons = scaled_exons, 
+                                                           which_exon_overlaps_start = which_exon_overlaps_start, 
+                                                           which_exon_overlaps_end = which_exon_overlaps_end,
+                                                           cds_df_gene = cds_df_gene, 
+                                                           cds_se_gene = cds_se_gene, 
+                                                           t_tx = tx)) %>% bind_rows %>% select(-Xmax, -Xmin)
+  
+  t_gtf_exons <- filter(res, type == 'exon') %>% select(seqid,strand, start, end) %>% 
+    mutate(length = sqrt(end-start))
+  gap=mean(t_gtf_exons$length)/10
+  scale_exon_lengths <- function(df, scale_factor, ymin, ymax){
+    df <- t_gtf_exons
+    scale_factor = gap 
+    n_gtf_exons <- df %>% 
+      select(seqid, strand, start, end) %>% 
+      distinct %>% 
+      arrange(start)
+    n_gtf_exons_scaled <- n_gtf_exons %>% mutate(Xmin=start-min(start), Xmax=end-min(start))
+    nge_scale_sqrt <- n_gtf_exons_scaled %>% mutate(Xmin=sqrt(Xmin), Xmax=sqrt(Xmax), length = Xmax-Xmin)
+    
+    
+    return(nge_scale_sqrt)
+  }
+  scaled_exons <- scale_exon_lengths(t_gtf_exons, gap,-.5,.5 )
+  final_gtf <- inner_join(res, scaled_exons)
+  
+  return(final_gtf)
 }
+
 
 set.seed(10021)
 all_genes <- gtf %>%  pull(gene_name) %>% unique()

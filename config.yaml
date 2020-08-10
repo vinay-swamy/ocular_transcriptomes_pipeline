@@ -8,7 +8,6 @@ refseq_ncbi_url: 'ftp://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/annotation/GRCh38_
 salmon_version: 'salmon/1.1.0'
 stringtie_version: 'stringtie/2.0.3'
 STAR_version: 'STAR/2.6.1c'
-rmats_verson: 'rmats/4.0.2'
 R_version: 'R/3.5.0'
 VEP_version: 'VEP/100'
 clinvar_vcf: 'ref/clinvar.vcf.gz'
@@ -31,3 +30,5 @@ clinvar_variant_url: 'ftp://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/varia
 file_yaml: files.yaml
 bedops_version: bedops/2.4.39
 ucsc_version: ucsc/401
+mysql_version: mysql/8.0
+crossmap_version: crossmap/0.4.0

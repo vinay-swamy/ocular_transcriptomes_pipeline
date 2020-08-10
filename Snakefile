@@ -117,12 +117,10 @@ with open(tissue_file) as tf, open(subtissue_file) as sf:
     tissues= [line.strip('\n') for line in tf]
     subtissues= [line.strip('\n') for line in sf]
 sample_names=sample_dict.keys()
-rmats_events=['SE','RI','MXE','A5SS','A3SS']
 #software version info
 salmon_version=config['salmon_version']
 stringtie_version=config['stringtie_version']
 STAR_version=config['STAR_version']
-rmats_version=config['rmats_verson']
 R_version=config['R_version']
 VEP_version=config['VEP_version']
 TransDecoder_version=config['TransDecoder_version']
@@ -133,6 +131,8 @@ bedtools_version=config['bedtools_version']
 bedops_version = config['bedops_version']
 clinvar_data=config['clinvar_vcf']
 file_yaml = config['file_yaml']
+crossmap_version = config['crossmap_version']
+
 #python_env=config['python_env']
 #commonly used files/paths
 working_dir=config['working_dir']
@@ -153,7 +153,7 @@ rule all:
         'data/rdata/all_tissue_quant.Rdata',  
         'data/novel_loci/hmmer/seq_hits.tsv', 
         'data/novel_loci/novel_loci_blast_results_nr.tsv', 
-        #'data/shiny_data/app_data/DNTX_db.sql',
+        'data/shiny_data/app_data/DNTX_db.sql',
         'data/rdata/pan_eye_quant.Rdata',
         expand('data/vep/{subtissue}/variant_summary.txt', subtissue = ['Retina_Fetal.Tissue', 'Retina_Adult.Tissue', 'gencode']), 
         calculate_cov_input(sample_dict, eye_tissues)
@@ -191,7 +191,7 @@ rule downloadAnnotation:
         wget -O - {config[ensembl_gtf_url]} | gunzip -c - > {output.ensbl_gtf}
         wget -O - {config[refseq_ncbi_url]} | gunzip -c - > {output.refseq}
         wget -O {input.clinvar_sum} {config[clinvar_variant_url]}
-        module load mysql
+        module load {config[mysql_version]}
         module load {config[ucsc_version]}
         mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -N -e "select * from refGene" hg38 |\
         cut -f2- | genePredToGtf -source=hg38.refGene.ucsc file stdin {output.ucsc}
@@ -224,7 +224,7 @@ rule liftover_intronic_variants:
             --panel {input} \
             --hg19genome {files[hg19_genome]} \
             --outvcf {output.hg19_vcf}
-        module load crossmap/0.4.0
+        module load {crossmap_version}
         crossmap vcf /data/swamyvs/ocular_transcriptomes_pipeline/ref/hg19ToHg38.over.chain.gz \
             {output.hg19_vcf} \
             {ref_genome} \
@@ -314,7 +314,7 @@ rule calculate_cov:
     output: 'coverage_files/{id}/cov.per-base.bed.gz'
     shell:
         '''
-        module load mosdepth
+        module load {mosdepth_version}
         sample={wildcards.id}
         mosdepth coverage_files/$sample/cov {input[0]}
         '''

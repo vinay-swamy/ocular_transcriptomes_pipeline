@@ -5,89 +5,21 @@ output: html_notebook
 
 
 ```{r setup}
-knitr::opts_knit$set(root.dir = '~/NIH/dev_eyeintegration_splicing/')
+knitr::opts_knit$set(root.dir = '/data/swamyvs/ocular_transcriptomes_pipeline/')
 #knitr::opts_knit$set(root.dir = '/data/swamyvs/eyeintegration_splicing/')
 ```
 
 
 
 
-
 ```{r}
 library(tidyverse)
-library(glue)
-sample_table <- read_tsv('sampleTableDev.tsv', col_names =c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin'))
-subtissue <- sample_table$subtissue %>% unique()
-proc_gtf <- function(tissue, build){
-    gtf <- rtracklayer::readGFF(glue('data/gtfs/{build}/{tissue}_st.gtf'))
-    num_ref <- gtf %>% filter(type =='transcript', grepl('ENST', transcript_id)) %>% nrow
-    num_novel <- gtf %>% filter(type =='transcript', !grepl('ENST', transcript_id)) %>% nrow 
-    if build == '
-    return(tibble(tissue=tissue,))
-}
-
-
-
+source('~/scripts/read_salmon.R')
+load('data/pan_eye_quant.Rdata')
+eye_gtf <- rtracklayer::readGFF('data/gtfs/pan_eye.gtf')
+gencode_quantfile <- paste0('gencode_quant/quant_files/', colnames(eye_quant),'/quant.sf') %>% .[file.exists(.)]
+gencode_quant <- read_salmon(path = '', qfiles = gencode_quantfile)
+eye_quant <- eye_quant %>% select(transcript_id, colnames(gencode_quant))
+colnames(eye_quant)
 ```
-
-
-
-```{r}
-library(tximport) 
-load('rdata/tcons_to_rpe_mstrg.rdata')
-filtered_tspec_gtf <- rtracklayer::readGFF('data/gtfs/filtered_tissue/RPE_Fetal.Tissue.gtf')
-filter(filtered_tspec_gtf, type == 'transcript') %>% nrow 
-qfiles <- list.files('data/quant_files/RPE_Fetal.Tissue', pattern='quant.sf', recursive = T, full.names = T)
-names <- str_split(qfiles, '/') %>% sapply(function(x) x[4])
-txi <- tximport(files = qfiles,type =  'salmon', txOut = T, countsFromAbundance = 'lengthScaledTPM' )
-colnames(txi$counts) <- names 
-tissue_specific_counts <-  txi$counts %>% as.data.frame() %>% mutate(oId=rownames(.)) %>% select(oId, everything()) %>% inner_join(tcons2oid,.)
-#THESE ARE ALREADY FILTERD BY EXPRESSION
-```
-
-
-```{r}
-library(tidyverse)
-load('rdata/salmon_all_tissues_quant.Rdata')
-all_gtf <- rtracklayer::readGFF('data/gtfs/all_tissues.combined.gtf')
-sample_table <- read_tsv('sampleTableDev.tsv', col_names = c('sample', 'run', 'paired', 'tissue', 'subtissue', 'origin' ))
-rpe_counts <- filter(sample_table, subtissue=='RPE_Fetal.Tissue') %>% pull(sample) %>% {counts[,c('transcript_id', .)]}
-all_tissue_counts_filt <- rpe_counts %>% filter(rowSums(.[,-1]) >= (ncol(.)-1) )
-
-tspec_quant_not_in_all <- filter(tissue_specific_counts, ! transcript_id %in% all_tissue_counts_filt$transcript_id) %>% 
-    mutate(avg_counts= rowMeans(.[,-(1:2)])) %>% 
-    arrange(desc(avg_counts))
-all_quant_dropped_tx_quant <- filter(tissue_specific_counts, ! transcript_id %in% all_tissue_counts_filt$transcript_id) %>% pull(transcript_id) %>% 
-    {filter(rpe_counts, transcript_id %in% . )} %>% 
-    inner_join(tspec_quant_not_in_all %>% select(transcript_id, avg_counts)) %>%
-    arrange(desc(avg_counts)) %>% 
-    select(-avg_counts) %>% 
-    mutate(avg_counts= rowMeans(.[,-1]))
-
-```
-
-So for about ~ 10% of transcripts were initially being quantified at (much) higher levels in the tissue specifc  but almost or near 0 in the merged set. This is interesting. What I think is happening is that the after building the tissue specifc transcriptome, there is a much 
-
-```{r}
-library(ComplexHeatmap)
-library(viridis)
-
-tspec_mat <- tspec_quant_not_in_all %>% select(-transcript_id, -oId, -avg_counts) %>% {log2(. +1)}
-allt_mat <- all_quant_dropped_tx_quant %>% select(-transcript_id, -avg_counts) %>% .[,colnames(tspec_mat)] %>% {log2(. +1)}
-#cn <- c(paste0('TisSpec_'colnames(tspec_mat)))
-mat <- cbind(tspec_mat,allt_mat)
-
-z
-hm <- Heatmap(mat[1:5000,],cluster_columns = F, cluster_rows = F, column_names_side = 'top',column_nam , col=viridis(100), show_row_names = F)
-draw(hm)
-
-```
-
-
-
-
-
-
-
-
 

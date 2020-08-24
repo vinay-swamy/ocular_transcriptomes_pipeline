@@ -1,0 +1,718 @@
+---
+title: "Hufnagel Time Course RPE de novo transcriptome"
+output:
+  pdf_document: default
+---
+
+
+
+```{r setup, echo=F, message=F}
+library(knitr)
+opts_knit$set(root.dir = '/data/swamyvs/ocular_transcriptomes_pipeline/time_course_rpe/')
+opts_chunk$set(echo = F, message = F, warning = F )
+
+```
+
+
+```{r, echo = F, message=F}
+library(tidyverse)
+library(data.table)
+library(parallel)
+library(glue)
+source('~/scripts/read_salmon.R')
+
+# 
+# process_columns <- function(tab,col_name){
+#     tab <- tab %>% filter( (!! rlang::sym(col_name)) != '-')
+#     col <- tab %>% pull(!!col_name)
+#     name_col <- tab %>% pull(transcript_id)
+#     det <- suppressWarnings(str_split(col, ':|\\|'))
+#     z <- '
+#     most of the oIds have a 1:1 mapping to tx ids, so split into 2 chunks for faster run time, like a lot faster
+#     _s denotes simple case, _c dentotes complex case
+#     '
+# 
+#     d_lengths <- sapply(det, length)
+#     base <- min(d_lengths)
+#     simple <- d_lengths == base
+#     det_s <- det[simple]
+#     name_col_s <- name_col[simple]
+#     tx_simple <-  lapply(1:length(det_s), function(i)  det_s[[i]][3] %>%
+#                              c(name_col_s[i], .)) %>%
+#         do.call(rbind, .) %>% as.data.frame(stringsAsFactors=F)
+#     colnames(tx_simple) <- c('transcript_id', col_name)
+#     #%>% rename(!!col_name:=oId) %>% distinct
+#     tx_comp=data.frame()
+#     if(sum(!simple) > 0){
+#         det_c <- det[!simple]
+#         name_col_c <- name_col[!simple]
+# 
+#         tx_comp <- lapply(1:length(det_c), function(i)  det_c[[i]][-1] %>%
+#                               .[grepl('MSTRG\\.\\d+\\.\\d+', .) | grepl('ENST', .)] %>%
+#                               {tibble(transcript_id=rep(name_col_c[i], length(.)),oId= . )}) %>%
+#             bind_rows() %>% rename(!!col_name:=oId) %>% distinct
+#     }
+#     return(list(simple=tx_simple, comp=tx_comp))
+# }
+# 
+# read_track_file <- function(track_file){
+#     track_tab <- fread(track_file, sep = '\t', header = F) %>% as_tibble
+#     names <- c('transcript_id', 'gene_id','refid', 'class_code',  't1', 't2')
+#     colnames(track_tab) <- names
+#     cn <- colnames(track_tab)[-(1:4)]
+#     tcons2mstrg <- mclapply(cn, function(col) process_columns(track_tab,col), mc.cores = min(length(cn), 4))
+#     conv_tab <-  lapply(tcons2mstrg, function(x) x[['simple']]) %>% reduce(full_join) %>% inner_join(track_tab[, 1:4],.)
+#     num_comp <- sapply(tcons2mstrg, function(x) nrow(x[['comp']])) %>% sum
+#     message(glue('{num_comp} transcripts that map to multiple reference transcripts'))
+#     return(conv_tab)
+# }
+# 
+# 
+# conv_tab <- read_track_file('ESC-_fRPE.tracking') %>% mutate(dntx_id = replace(t1, is.na(t1), t2[is.na(t1)])) %>%
+#     select(transcript_id, dntx_id)
+# 
+# rpe_gtf <- rtracklayer::readGFF('../data/gtfs/final_tissue_gtfs/RPE_Fetal.Tissue.gtf')
+# esc_gtf <- rtracklayer::readGFF('../data/gtfs/final_tissue_gtfs/ESC_Stem.Cell.Line.gtf')
+# 
+# merged_gtf <- rtracklayer::readGFF('../data/gtfs/all_tissues.combined_annotated.gtf') %>%
+#     as_tibble %>%
+#     filter(transcript_id %in% unique(c(rpe_gtf$transcript_id, esc_gtf$transcript_id)))
+# 
+# det_df <- merged_gtf %>% filter(type == 'transcript') %>%
+#     mutate(is_rpe = transcript_id %in% rpe_gtf$transcript_id,
+#            is_esc = transcript_id %in% esc_gtf$transcript_id) %>%
+#     select(transcript_id, class_code, transcript_type,is_rpe, is_esc) %>%
+#     filter(is_rpe |is_esc)
+# cds_track_tab <- fread('/data/swamyvs/ocular_transcriptomes_paper/clean_data/CDS_gtf/CDS_comp.tracking', sep = '\t', header = F) %>%
+#     as_tibble %>%
+#     mutate(cds_id = str_split(V3, '\\|') %>% sapply(function(x) x[2]),
+#            transcript_id = str_split(V5, '\\|') %>% sapply(function(x)x[2])) %>%
+#     select(cds_id, transcript_id) %>%
+#     inner_join(det_df)
+# t2g <- merged_gtf %>% filter(type == 'transcript') %>% select(transcript_id,gene_name)
+# novel_orf_tx <- cds_track_tab %>%
+#     filter(class_code == '=') %>%
+#     pull(cds_id) %>%
+#     {filter(cds_track_tab, !cds_id %in% .)} %>%
+#     pull(transcript_id)
+# novel_tx_labdf <- det_df %>% filter(!class_code %in% c('u', '=')) %>%
+#     select(transcript_id, class_code) %>%
+#     mutate(has_novel_orf  = transcript_id %in% novel_orf_tx,
+#            is_novel_loci  = class_code == 'u') %>%
+#     inner_join(t2g, .)
+# 
+# 
+# det_df <- det_df %>% mutate(
+#            rpe_only = is_rpe & !is_esc,
+#            both = is_rpe & is_esc,
+#            esc_only = !is_rpe & is_esc)
+# tx_novelty_and_spec <- det_df %>%
+#     mutate(transcript_novelty = case_when(class_code == '=' ~ 'Annotated',
+#                                   class_code == 'u' ~ 'Novel Loci',
+#                                   !class_code %in% c('u', '=') & transcript_id %in% novel_orf_tx & transcript_type == 'protein_coding' ~ 'Novel Isoform Novel ORF',
+#                                   !class_code %in% c('u', '=') & !transcript_id %in% novel_orf_tx & transcript_type == 'protein_coding' ~ 'Novel Isoform Annotated ORF',
+#                                   !class_code %in% c('u', '=') & !transcript_type == 'protein_coding' ~ 'Novel Isoform Noncoding',
+#                                   TRUE ~'sd'
+#                                   )) %>%
+#     group_by(transcript_novelty) %>%
+#     summarise(`RPE only` = sum(rpe_only),
+#               `RPE and ESC` = sum(both),
+#               `ESC only` = sum(esc_only))
+# 
+# coldata <- tibble(sample=c( "hfngl_ipscrpe_RNA_D0", "hfngl_ipscrpe_RNA_D10", "hfngl_ipscrpe_RNA_D15",
+#                               "hfngl_ipscrpe_RNA_D2", "hfngl_ipscrpe_RNA_D20", "hfngl_ipscrpe_RNA_D25",
+#                               "hfngl_ipscrpe_RNA_D40", "hfngl_ipscrpe_RNA_TW" ),
+#                   day = gsub('_TW', '_D45', sample)) %>%
+#             mutate(day = str_split(day, '_D') %>% sapply(function(x) x[2]) %>% as.numeric) %>%
+#             arrange(day) %>%
+#             mutate(day=as.character(day))
+# RPEsr_2_RPElr <- read_track_file('ESC_RPE_lr_merge_sr_only.tracktab') %>% select(t1, t2) %>%
+#   rename(transcript_id = t1) %>% 
+#   inner_join(conv_tab)
+# 
+# 
+# 
+# gdata::keep(cds_track_tab, det_df, conv_tab, coldata, merged_gtf, novel_tx_labdf, read_salmon,t2g, RPEsr_2_RPElr,sure = T )
+# save.image('analysis_prep.Rdata')
+```
+
+```{r echo = FALSE, message=F, warning=F}
+library(edgeR)
+library(limma)
+load('analysis_prep.Rdata')
+samples <- coldata$sample
+counts_raw <- read_salmon('quant_files/', which_return = 'tibble', normalize_counts = F, quant_type = 'counts') %>% 
+    filter(rowSums(.[,samples] >=5 ) >0)%>% #counts in at least one sample
+    select(transcript_id, everything()) %>%  
+    inner_join(conv_tab,.) %>% 
+    dplyr::select(-transcript_id) %>% 
+    dplyr::rename(transcript_id = dntx_id) 
+counts_mat <- counts_raw %>% select(-transcript_id) %>% as.matrix
+rownames(counts_mat) <- counts_raw$transcript_id
+coldata <- coldata %>% mutate(reduced_tp  = c( 'T1', 'T1', 'T2', 'T2', 'T3', 'T3', 'T4', 'T4') %>% as.factor )
+tpm_co <-10
+piu_diff_co <- .25
+min_qval <- .01
+design_mat <- model.matrix(~coldata$reduced_tp+ 0)
+colnames(design_mat) <- levels(coldata$reduced_tp)
+rownames(design_mat) <- coldata$sample
+dge <- calcNormFactors(DGEList(counts_mat[,coldata$sample]))
+dge <- voom(dge, design_mat)
+fit <- lmFit(dge, design = design_mat)
+efit <- eBayes(fit)
+
+
+replace_nan <- function(df) {
+    df_fixed <- lapply(colnames(df),function(col) pull(df, col) %>%  
+                           {replace(., is.nan(.), 0)}) %>% bind_cols %>% as_tibble
+    colnames(df_fixed) <- colnames(df)
+    return(df_fixed)
+    
+}
+
+
+txi_normalized <- read_salmon('quant_files/', which_return = 'txi', normalize_counts = T)
+     
+tx_abundance_norm <- txi_normalized$abundance %>%  as.data.frame() %>% 
+    mutate(transcript_id = rownames(.)) %>% select(transcript_id, everything()) %>%  inner_join(conv_tab,.) %>% 
+    dplyr::select(-transcript_id) %>% 
+     dplyr::rename(transcript_id = dntx_id) %>% 
+    filter(transcript_id %in% counts_raw$transcript_id)
+oldtx2gene <- conv_tab %>% select(oid=transcript_id, transcript_id = dntx_id) %>% inner_join(t2g, .) %>% select(oid, gene_name)
+gene_ab_norm <- tximport::summarizeToGene(txi_normalized, tx2gene = oldtx2gene) %>% 
+    .[['abundance']] %>% 
+    as.data.frame %>% 
+    mutate(gene_name = rownames(.)) %>% 
+    select(gene_name, everything()) %>% 
+    inner_join(t2g,.) %>% 
+    inner_join(tx_abundance_norm %>% select(transcript_id),.)
+
+stopifnot(all(gene_ab_norm$transcript_id == tx_abundance_norm$transcript_id))
+samples <- coldata$sample
+tx_piu <- {tx_abundance_norm[,samples] / gene_ab_norm[,samples] } %>% bind_cols(tx_abundance_norm[,'transcript_id'] ,.) %>% 
+    replace_nan
+### calculate pseudo-t specific daata
+tps = levels(coldata$reduced_tp)
+tx_ab_pseudot <- tx_abundance_norm %>%   
+    gather(key = 'sample', value = 'ab', -transcript_id) %>% 
+    inner_join(coldata %>% select(sample, reduced_tp)) %>% 
+    group_by(transcript_id, reduced_tp) %>% 
+    summarise(avg_ab = mean(ab)) %>% 
+    ungroup %>% 
+    spread(key = reduced_tp, value = avg_ab) %>% 
+    filter(rowSums(.[,tps] >=tpm_co) >0)
+
+
+
+
+multi_tx_genes <-t2g  %>% filter(transcript_id %in%counts_raw$transcript_id) %>% 
+    distinct %>% 
+    select(transcript_id, gene_name) %>% group_by(gene_name) %>% summarise(n=n()) %>% pull(gene_name)
+
+
+tx_piu_pseudot <- tx_piu %>% 
+    gather(key = 'sample', value = 'ab', -transcript_id) %>% 
+    inner_join(coldata %>% select(sample, reduced_tp)) %>% 
+    group_by(transcript_id, reduced_tp) %>% 
+    summarise(avg_ab = mean(ab)) %>% 
+    ungroup %>% 
+    spread(key = reduced_tp, value = avg_ab) %>% 
+    filter(transcript_id %in% tx_ab_pseudot$transcript_id)
+    
+
+
+novel_orf_tx <- cds_track_tab %>% 
+    filter(class_code == '=') %>% 
+    pull(cds_id) %>% 
+    {filter(cds_track_tab, !cds_id %in% .)} %>% 
+    pull(transcript_id)
+tx_labdf <- det_df %>%
+    select(transcript_id, class_code) %>% 
+    mutate(has_novel_orf  = transcript_id %in% novel_orf_tx, 
+           is_novel_loci  = class_code == 'u')%>% 
+    inner_join(t2g, .) %>% 
+    filter(gene_name%in% multi_tx_genes)
+
+
+
+novel_single_exons <- merged_gtf %>% filter(is.singleExon == 'TRUE', class_code!= '=') %>% pull(transcript_id) %>% unique
+
+analyze_DTU<- function(coef){
+    message(glue('processing {coef}'))
+    
+    top_tx_table <- topTable(efit, coef =coef,number = 100000000) %>%
+        as.data.frame( ) %>% 
+        mutate(transcript_id = rownames(.)) %>% 
+      filter(transcript_id %in%tx_ab_pseudot$transcript_id)
+    message( glue('{nrow(top_tx_table)} initially signficant transcripts') )
+    
+    other_coefs <- colnames(tx_piu_pseudot)[!colnames(tx_piu_pseudot)%in%c(coef, 'transcript_id')]
+
+    above_tpm_co <- tx_ab_pseudot %>% dplyr::filter( !!as.symbol(coef) >=tpm_co) %>% pull(transcript_id)
+    message(glue('{length(above_tpm_co)} transcripts above {tpm_co} TPM'))
+    mean_other_pt <- tx_piu_pseudot %>%  dplyr::select(all_of(other_coefs)) %>% rowMeans()
+    
+
+    piu_diff_tx <- tx_piu_pseudot %>% dplyr::select(transcript_id, !!coef) %>% 
+        mutate(piu_diff := !!as.symbol(coef) - mean_other_pt) %>% 
+        select(transcript_id, piu_diff)
+    above_piu_diff_tx <- piu_diff_tx %>% 
+        dplyr::filter(abs(piu_diff) >= piu_diff_co) %>% 
+        pull(transcript_id)
+    message(glue('{length(above_piu_diff_tx)} transcripts with over {piu_diff_co} piu diff from mean'))
+    
+    
+     best_results <- top_tx_table %>% 
+        dplyr::filter(adj.P.Val < .01,
+                      transcript_id%in% tx_labdf$transcript_id,#only genes that have multiple tx
+                      transcript_id %in% above_piu_diff_tx, 
+                      !transcript_id %in% novel_single_exons) # large change in piu 
+      message(glue('{nrow(best_results)} transcripts that have significant DTU'))
+    if(nrow( best_results ) >0){
+        res <- best_results %>% 
+            #inner_join(t2g, .) #%>% 
+            inner_join(tx_labdf)
+        message(glue('{sum(res$class_code != "=")} novel transcripts\n {sum(res$has_novel_orf)} novel orfs\n\n'))
+        
+        all_results <- inner_join(top_tx_table, piu_diff_tx) %>% select(transcript_id, adj.P.Val, piu_diff)
+        return(list(filtered =res, all=all_results)  )
+        
+    }   
+}
+
+all_dtu <- lapply(levels(coldata$reduced_tp), analyze_DTU) 
+all_dtu_genes <- lapply(all_dtu, function(x) x$filtered$gene_name) %>% reduce(union)
+all_dtu_tx <- lapply(all_dtu, function(x) x$filtered$transcript_id) %>% reduce(union)
+
+coldata <- coldata %>% mutate(day_str = str_split(sample, '_') %>% sapply(function(x) x[4]),
+                              day_str = factor(day_str, levels = day_str), 
+                              day_num = as.numeric(day))
+```
+
+## Overview 
+
+I took the de novo transcriptomes for Embryonic Stem Cells(ESC) and Fetal RPE and merged them into a single annotation, and quantified Robs samples using that annotations
+
+Overall Numbers 
+
+```{r, echo = F, message=F}
+df <- det_df %>% left_join(cds_track_tab) %>% 
+  mutate(has_novel_orf = transcript_id %in% novel_orf_tx, 
+            is_pc = !is.na(cds_id)) 
+tibble(label = c('Number of Annotated Isoforms', 
+                 'Number of Novel Isoforms',
+                 'Number of Annotated ORFs',
+                 'Number of Novel ORFs', 
+                 'Number of Novel Loci'),
+       value = c(sum(df$class_code == '='), 
+                 sum(!df$class_code %in% c('=','u')),
+                 sum(!df$has_novel_orf & df$is_pc),
+                 sum(df$has_novel_orf),
+                 sum(df$class_code == 'u')
+                 )
+       ) %>% kable(col.names = c('','')) 
+```
+
+Next, I extracted novel transcripts only constructed in RPE, and novel transcripts only constructed in ESC. Even though these transcripts were still only assembled in 1 tissue type, they still get quantified when using salmon, and I'm not entirely sure why. I then summed the total expression associated with these genes at each time point 
+
+```{r echo=F, message=F}
+spec_tx <- det_df %>% filter(!both) %>% mutate(which_spec = ifelse(rpe_only, 'RPE', 'ESC')) %>% select(transcript_id, which_spec)
+quant_exp <- tx_abundance_norm 
+res_exp <- quant_exp %>% 
+    inner_join(spec_tx, .) %>% 
+    select(-transcript_id) %>% 
+    group_by(which_spec) %>% 
+    summarise_all(sum) %>% 
+    gather(key = 'sample', value = 'total_ab', -which_spec) %>%
+    inner_join(coldata) 
+
+ggplot(res_exp, aes(x=day_str, y=total_ab, fill = which_spec)) +
+    geom_col(position = 'fill', stat = 'identity') +
+    ylab('fraction of novel tissue\nspecific transcript expression')+
+    cowplot::theme_cowplot()
+
+
+
+```
+
+
+
+```{r}
+coldata %>% select(sample, psuedo_tp = reduced_tp) %>% kable 
+```
+
+Next, I wanted to know which genes have differential usage of transcipts(DTU) at time points 
+
+I couldn't get differential expression tests to work using all time points, so I collapsed each time point into  4 sets of two timepoints, and used the the pseudotime points as experimental conditions. I tried to use the DTU analysis packages `DRIMSeq` and `stageR` from the DESeq authors, but couldn't get `stageR` to work. I used the standard differnetial gene expression workflow, and used the following 
+
+Criteria for DTU
+ - transcript must expressed at least avg 10 TPM in one pseudo tp
+ - transcript is differentially expressed ( time point vs mean,  adjusted p value <.01)
+ - the fraction of total gene expression(PIU) attributed to transcript at a time point is differs by at least .25 from average PIU in other time points 
+
+
+
+```{r echo=F, message=F}
+names(all_dtu) <- levels(coldata$reduced_tp)
+transcript_in_pacbio <- filter(RPEsr_2_RPElr, !is.na(t2)) %>% pull(dntx_id)
+tx_above_tpm_co <- tx_ab_pseudot %>% filter(rowSums(.[,-1] >=tpm_co)>0 ) %>% pull(transcript_id)
+vp_data <- lapply(all_dtu, function(x) x[['all']] ) %>% bind_rows() %>% 
+    mutate(abdiff = abs(piu_diff))
+    
+vp_data_sig <-vp_data %>%  filter(adj.P.Val < min_qval, abdiff >= piu_diff_co, transcript_id %in% tx_above_tpm_co) %>% 
+    filter(!duplicated(transcript_id)) %>% 
+    mutate(sig = ifelse(transcript_id %in% transcript_in_pacbio,'DTU-pacbio','DTU'))
+vp_data_not_sig <- vp_data %>% filter(!transcript_id%in% vp_data_sig$transcript_id) %>% 
+  filter(!duplicated(transcript_id)) %>% 
+  mutate(sig = 'NOT DTU')
+
+vp_data <-bind_rows(vp_data_sig, vp_data_not_sig) %>% mutate(qval= -1* log2(adj.P.Val)) 
+#table(vp_data$sig)
+
+all_dtu_genes <- lapply(all_dtu, function(x) x$filtered$gene_name) %>% reduce(union)
+all_dtu_tx <- lapply(all_dtu, function(x) x$filtered$transcript_id) %>% reduce(union)
+vp <- ggplot(vp_data) +
+    geom_point(aes(x=piu_diff, y=qval, color = sig))+
+    scale_color_manual(values = c('DTU-pacbio'= 'red', 'DTU'= 'orange', 'NOT DTU'='lightgrey'))+
+    ylab('-log2(adjusted p value)') + 
+    xlab('change in fraction isoform usage')+
+    #ggtitle('Differentially expressed transcripts \nwith differential transcript usage(DTU)')+
+    cowplot::theme_cowplot()
+vp
+```
+
+
+```{r}
+tx_lengths <- merged_gtf %>% filter(type == 'exon') %>% mutate(length = end-start) %>% group_by(transcript_id) %>% 
+  summarise(length = sum(length) +n())
+nonpacbio_dtu <- filter(vp_data,sig == 'DTU') %>% pull(transcript_id)
+
+tx_lengths %>% filter(transcript_id %in% nonpacbio_dtu) %>% pull(length) %>%{sum(. <1000) / length(.)}
+
+```
+```{r echo = F, message=F, warning=F}
+
+RPE_markers <-  c('SOX2','SIX3','VSX2','TBX5','VAX2','SERPINF1','SERPINE3','GSX2','SOX10','PAX6','SOX9','TYRP1','MYRIP','TTR','TG','PAX8','DIO1','DIO2','DIO3','LRP2','LHX2','RPE65','RLBP1','DCT','TYR','SLC2A1','MITF','OTX2','TRPM3','TIMP3','RAX','RAX2','POU3F2','POU6F2','CPEB1','CRX','PROX1','ZNF467','NFYC','NFAT5','BEST1') 
+
+dtu_rpe_marker<- all_dtu_genes %in% RPE_markers %>% all_dtu_genes[.]
+
+
+dtu_rpe_special <- lapply(all_dtu, function(x) x$filtered %>% filter(gene_name %in% dtu_rpe_marker) %>% 
+                              pull(transcript_id)) %>% 
+    reduce(union) %>% {filter(tx_labdf, transcript_id %in% .)} %>% inner_join(t2g,.) 
+
+dntx2ref <- data.table::fread('ESC-_fRPE.tracking', header=F, sep = '\t') %>% 
+        as_tibble %>% 
+    select(transcript_id = V1,class_code = V4,refid= V3) %>% 
+    filter(refid!= '-', class_code == '=') %>% 
+    mutate(refid = str_split(refid, '\\|') %>% sapply(function(x) x[2])) %>% 
+    inner_join(conv_tab,.) %>% 
+    select(-transcript_id, -class_code) %>% 
+    rename(transcript_id = dntx_id)
+
+```
+
+This gave me a total of `r toString(length(all_dtu_genes))` gene across `r toString(length(all_dtu_tx) )` transcripts. This set includes both annoated and novel transcripts 
+
+```{r fig.height=12, fig.width=11}
+library(ComplexHeatmap)
+refid2dntx <- fread('ESC-_fRPE.tracking', sep ='\t', header=F) %>% as_tibble %>%
+  select(transcript_id = V1, class_code= V4, refid=V3) %>% 
+  filter(class_code == '=') %>% 
+  mutate(pretty_txid = str_split(refid, '\\|') %>% sapply(function(x)x[2] )) %>% 
+  left_join(conv_tab,.) %>% 
+  select(-transcript_id) %>% 
+  rename(transcript_id = dntx_id) %>% 
+  mutate(pretty_txid = replace(pretty_txid, is.na(pretty_txid),transcript_id[is.na(pretty_txid)]) ) %>% 
+  select(-class_code)
+tx_piu_filter <- tx_piu %>% inner_join(t2g,.) %>%  filter(gene_name %in% all_dtu_genes, gene_name %in% RPE_markers, 
+                                                    rowSums(.[,samples] >.25) >0 ) %>% pull(transcript_id)
+
+
+ab_deg_df <- tx_abundance_norm %>% 
+    inner_join(t2g, .) %>% 
+    dplyr::filter(gene_name %in% all_dtu_genes, gene_name %in% RPE_markers) %>% 
+    filter(transcript_id %in% tx_piu_filter) %>% 
+    inner_join(refid2dntx) %>% 
+    mutate(pretty_txid = replace(pretty_txid, transcript_id%in%transcript_in_pacbio,
+                                 paste0(pretty_txid[transcript_id%in%transcript_in_pacbio], '(pb)' ) ), 
+          pretty_txid = paste(gene_name, pretty_txid, sep = '-'), 
+          pretty_txid = replace(pretty_txid, transcript_id%in%all_dtu_tx, 
+                                 paste0(pretty_txid[transcript_id%in%all_dtu_tx], '*'  )))%>% 
+  arrange(gene_name)
+    
+ab_deg_mat <- ab_deg_df %>% dplyr::select(-transcript_id, -gene_name, -pretty_txid, -refid) %>% 
+    as.matrix %>% {log2(. +1)} %>% 
+    .[,coldata$sample]
+
+
+colnames(ab_deg_mat) <- coldata$sample
+rownames(ab_deg_mat) <- ab_deg_df$pretty_txid
+
+cf <- circlize::colorRamp2(c(0,2,4,6), viridisLite::viridis(4))
+Heatmap(ab_deg_mat, col=cf, show_row_dend = F, show_row_names = T, cluster_columns = T, cluster_rows = F, name = 'log2(TPM+1)',)
+
+```
+
+
+
+```{r fig.height=9, fig.width=7}
+custom_filter_df <- function(df){
+  df <- df %>% select(-gene_name) %>% 
+    gather(key = 'sample', value = 'piu', -transcript_id) %>% group_by(transcript_id) %>% 
+    summarise(max_piu = max(piu)) %>% 
+    inner_join(refid2dntx) %>% 
+    arrange(desc(max_piu)) 
+    
+    res <- df %>% head(3) %>% pull(transcript_id) %>% {tibble(transcript_id = .)}
+    if(all(grepl('DNTX', df$pretty_txid[1:3]))){
+      res[3,'transcript_id'] <- df[grep('ENST', df$pretty_txid)[1],'transcript_id']
+    }
+    return(res)
+}
+
+tx_piu_filter <- tx_piu %>% inner_join(t2g,.) %>%  filter(gene_name %in% all_dtu_genes, gene_name %in% RPE_markers) %>% 
+  group_by(gene_name) %>% do(custom_filter_df (.))
+                                                    #rowSums(.[,samples] >.25) >0 ) %>% pull(transcript_id)
+
+
+
+piu_deg_df <- tx_piu %>% 
+  inner_join(t2g,.) %>% 
+  filter(transcript_id %in% tx_piu_filter$transcript_id) %>% 
+inner_join(refid2dntx) %>% 
+    mutate(pretty_txid = replace(pretty_txid, transcript_id%in%transcript_in_pacbio,
+                                 paste0(pretty_txid[transcript_id%in%transcript_in_pacbio], '(pb)' ) ), 
+          pretty_txid = paste(gene_name, pretty_txid, sep = '-'), 
+          pretty_txid = replace(pretty_txid, transcript_id%in%all_dtu_tx, 
+                                 paste0(pretty_txid[transcript_id%in%all_dtu_tx], '*'  ))) %>% 
+  arrange(gene_name) %>% filter(!gene_name %in% c('GSX2', 'TTR') )
+
+
+piu_deg_mat <- piu_deg_df %>% dplyr::select(-transcript_id, -gene_name, -pretty_txid, -refid) %>% 
+    as.matrix %>% 
+    .[,coldata$sample]
+
+
+colnames(piu_deg_mat) <- coldata$day_str
+rownames(piu_deg_mat) <- piu_deg_df$pretty_txid
+
+cf <- circlize::colorRamp2(c(0,.25,.5,.75, 1), viridisLite::viridis(5))
+cn = columnAnnotation(foo = anno_text(coldata$day_str, rot = 0, 
+    just = "right"))
+hm <- Heatmap(piu_deg_mat, col=cf, show_row_dend = F, show_row_names = T,show_column_names = F, cluster_rows = F, cluster_columns = F, name = 'PIU', 
+        bottom_annotation = cn, row_names_side = 'left', row_names_max_width = unit(75,'mm'))
+
+as.ggplot(hm)
+```
+
+
+
+
+
+the transwell sample seems more similar to D10 and D15, dont really have an explanation for that 
+
+
+```{r, fig.height=8, fig.width=8, echo = F, message=F, warning=F}
+library(patchwork)
+library(pals)
+
+
+
+plot_piu_bar <- function(gene){
+    piu <- tx_piu %>% inner_join(t2g,.) %>%  filter(gene_name == gene, 
+                                                    #rowSums(.[,samples]) >=.25,
+                                                    #rowSums(.[,samples] >.25) >0 
+                                                    transcript_id%in% tx_piu_filter$transcript_id
+                                                    ) %>% select(-gene_name) %>% 
+        gather(key = 'sample', value = 'piu', -transcript_id) %>% inner_join(tx_labdf) %>% 
+        mutate(sample = factor(sample, levels = coldata$sample)) %>% 
+      left_join(refid2dntx) %>% 
+      left_join(coldata)
+    
+        
+    #tx_labdf %>% left_join(dntx2ref) %>% mutate(new=replace(transcript_id))
+   tx_ab <- tx_abundance_norm %>% 
+        inner_join(t2g,.) %>%  filter(gene_name == gene) %>% select(-gene_name) %>% 
+        gather(key = 'sample', value = 'ab', -transcript_id) %>% inner_join(coldata) %>% 
+        mutate(sample = factor(sample, levels = coldata$sample)) %>% 
+     filter(transcript_id %in% piu$transcript_id) %>%
+     left_join(refid2dntx) %>% 
+     mutate(pretty_txid = replace(pretty_txid, transcript_id%in%transcript_in_pacbio,
+                                 paste0(pretty_txid[transcript_id%in%transcript_in_pacbio], '(pb)' ) ), 
+          pretty_txid = replace(pretty_txid, transcript_id%in%all_dtu_tx, 
+                                 paste0(pretty_txid[transcript_id%in%all_dtu_tx], '*'  )))
+   piu <- piu %>% mutate(pretty_txid = replace(pretty_txid, transcript_id%in%transcript_in_pacbio,
+                                 paste0(pretty_txid[transcript_id%in%transcript_in_pacbio], '(pb)' ) ), 
+          pretty_txid = replace(pretty_txid, transcript_id%in%all_dtu_tx, 
+                                 paste0(pretty_txid[transcript_id%in%all_dtu_tx], '*'  )))
+   ab <- gene_ab_norm %>% filter(gene_name == gene) %>% select(-transcript_id) %>% 
+            distinct %>% 
+            gather(key = 'sample', value = 'ab', -gene_name) %>% inner_join(coldata) %>% 
+            mutate(sample = factor(sample, levels = coldata$sample)) %>% rename(pretty_txid = gene_name) %>% 
+       bind_rows(tx_ab) %>% 
+       mutate(ab=log2(ab+1))
+   color_list <- c('red', 'blue', 'green', 'purple')
+   names(color_list) <- unique(ab$pretty_txid) %>% {c(.[. == gene], .[grepl('ENST',.)], .[grepl('DNTX',.)] )}
+   print(color_list)
+   piu_plot <- ggplot(piu %>% rename(`Transcript ID` = pretty_txid) )+
+        geom_col(aes(x=day_str, y=piu, fill = `Transcript ID`), position = 'dodge')+
+        scale_fill_manual(values = color_list)+
+        ylab('fraction of total\ngene expression')+
+        cowplot::theme_cowplot()#+
+        #theme(axis.text.x = element_text(angle = 45, hjust=1))
+    ab_plot <- ggplot(ab %>% rename(`Transcript ID` = pretty_txid) )+
+        geom_line(aes(x = day_str, y=ab, group = `Transcript ID`, color =`Transcript ID`)) +
+        scale_color_manual(values = color_list)+
+        ylab('log2(TPM+1)') +
+        cowplot::theme_cowplot()
+    p <- piu_plot / ab_plot +plot_annotation(tag_level = 'A') +plot_layout(guides = 'collect')
+    return(p)
+    
+}
+
+
+
+
+#low_var_genes <- gene_ab_norm %>% mutate(gvar = matrixStats::rowVars(.[,samples] %>% as.matrix)) %>% arrange(gvar) %>% 
+#     select(gene_name, gvar)
+# low_var_sig <- filter(tx_labdf, gene_name %in% all_dtu_genes) %>% inner_join(low_var_genes) %>% arrange(gvar) %>% distinct
+# low_var_genes <- gene_ab_norm %>% mutate(gvar = matrixStats::rowVars(.[,samples] %>% as.matrix)) %>% arrange(gvar) %>% 
+#     select(gene_name, gvar)
+# dtu_genes_dev <-  ego@result %>% filter(Description == 'in utero embryonic development') %>% pull(geneID) %>% str_split('/') %>% .[[1]]
+# 
+# low_var_sig <- filter(tx_labdf, gene_name %in% dtu_genes_junction) %>% inner_join(low_var_genes) %>% arrange(gvar) %>% distinct
+```
+
+```{r}
+draw_all_transcripts_static <- function(gene, gtf,keep_tx){
+    main_cols <- c("seqid", "type",  "start", "end", "strand", "transcript_id", "gene_name", "exon_number" )
+    gtf_gene <- filter(gtf, gene_name == gene, transcript_id %in% keep_tx)
+    unique_tx <- length(unique(gtf_gene$transcript_id))
+    gtf_exons <- filter(gtf_gene, type == 'exon') %>% 
+        select(seqid, strand, start, end) %>% 
+        distinct %>% 
+        arrange(start) %>% 
+        mutate(length=end-start, length=sqrt(length), Xmin=0, Xmax=0, Ymin=-1, Ymax=1) %>% 
+        mutate(lab1=paste0('sdfs',1:nrow(.)), 
+               lab2=paste0('wef',1:nrow(.)), 
+               lab3=paste0('gfr',1:nrow(.)) )
+    gap=mean(gtf_exons$length)
+    gtf_exons[1,'Xmax'] <- gtf_exons[1,'Xmin'] + gtf_exons[1,'length']
+    if(nrow(gtf_exons) > 1){
+        for(i in 2:nrow(gtf_exons)){
+            gtf_exons[i,'Xmin'] <- gtf_exons[(i-1),'Xmax'] + gap 
+            gtf_exons[i,'Xmax'] <- gtf_exons[i,'Xmin'] + gtf_exons[i,'length']
+        }
+    }
+    
+    plot_data <- filter(gtf_gene, type == 'exon') %>%  
+      select(main_cols,novel_exon_id) %>% 
+      inner_join(gtf_exons) %>% 
+      mutate(`exon type`=ifelse(is.na(novel_exon_id), 'ref', 'novel')) %>% 
+      inner_join(refid2dntx) %>% 
+      mutate(pretty_txid = replace(pretty_txid, transcript_id%in%transcript_in_pacbio,
+                                 paste0(pretty_txid[transcript_id%in%transcript_in_pacbio], '(pb)' ) ), 
+          pretty_txid = replace(pretty_txid, transcript_id%in%all_dtu_tx, 
+                                 paste0(pretty_txid[transcript_id%in%all_dtu_tx], '*'  )))
+    color_list <- c('black', 'red')
+    names(color_list) <- c('ref', 'novel')
+    plot <- ggplot(data = plot_data) +
+        geom_rect( aes(xmin=Xmin, xmax=Xmax, ymin=Ymin, ymax=Ymax,fill=`exon type`))+
+        scale_fill_manual(values = color_list) +
+        facet_wrap(~pretty_txid, ncol=1, strip.position = 'left')+
+        ggtitle(gene) +
+        theme_void() +
+        theme(strip.text = element_text(angle = 180))
+    #print(nchar(plot$data$transcript_id))
+    return(plot)
+    #return(girafe(ggobj = plot, width_svg = wsvg, height_svg = hsvg))
+    
+}
+
+serp_gm <- draw_all_transcripts_static('SERPINE3',merged_gtf, tx_piu_filter$transcript_id)
+mitf_gm <- draw_all_transcripts_static('MITF', merged_gtf, tx_piu_filter$transcript_id)
+```
+
+
+There several genes from the list you sent me that had DTU transcripts. The bar plots below contains the fraction of gene expression associate with each transcript that contributed to at least .25 of its parent gene's expression at one time point. transcripts that are labeled with a \*  the differentially expressed DTU transcripts. The line plots are transcript expression at each time point for each transcript
+
+### MITF
+
+```{r fig.height=8, fig.width=8}
+
+mitf_piu <-  plot_piu_bar('MITF')
+mitf
+```
+
+### BEST1
+
+```{r fig.height=8, fig.width=8}
+plot_piu_bar('DCT')
+```
+
+### SERPINE3
+
+```{r fig.height=8, fig.width=8}
+serp <- plot_piu_bar('SERPINE3')
+serp 
+```
+
+```{r}
+cap = ' Figure. Differentialy Transcript Usage(DTU) during RPE differentiation A) Volcano plot with diffferent transcripts'
+```
+
+
+
+```{r fig.height=12, fig.cap=cap}
+#save(hm, vp, mitf, serp, file = 'all_plots.Rdata')
+
+
+des='
+AAA#CCC
+AAA#DDD
+AAA#DDD
+#BBBDDD
+#BBBDDD'
+vp+as.ggplot(hm)+mitf_gm+mitf_piu +plot_layout(design = des)
+
+
+```
+
+
+
+
+
+
+
+finally, Enriched GO terms, which seem to make sense 
+
+```{r, echo=F, message=F, warning=F}
+#ego <- clusterProfiler::enrichGO(all_dtu_genes,OrgDb = 'org.Hs.eg.db', ont = 'BP', keyType = 'SYMBOL', qvalueCutoff = .05)
+#save(ego, file = 'ego.Rdata')
+load('ego.Rdata')
+clusterProfiler::dotplot(ego, showCategory = 10)
+
+```
+
+most interesting non RPE marker genes
+
+```{r}
+junc_organize_gens <- ego@result %>% filter(Description == 'cell junction organization') %>%
+  pull(geneID) %>% str_split('/') %>% unlist
+junc_assembly_genes <- ego@result %>% filter(Description == 'cell junction assembly') %>%
+  pull(geneID) %>% str_split('/') %>% unlist
+polarity_estb_genes <- ego@result %>% filter(Description == 'establishment or maintenance of cell polarity') %>%
+  pull(geneID) %>% str_split('/') %>% unlist
+```
+
+
+
+
+
+```{r}
+
+```
+
+
+

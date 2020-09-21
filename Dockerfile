@@ -136,3 +136,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libudunits2-dev && \
      Rscript -e "renv::init()"
 
+RUN echo '#!/bin/bash' > module \
+    && echo 'echo $1 $2' >> module \
+    && chmod 777 module \
+    && cp module /usr/local/bin
+

@@ -123,6 +123,7 @@ rule downloadAnnotation:
         clinvar_sum = 'ref/clinvar_variant_summary.txt.gz'
     shell:
         '''
+        ## pull gencode annotations
         wget -O - {config[ref_tx_fasta_url]} | gunzip -c - > {output.reftxfa}
         wget -O - {config[refGTF_url]} | gunzip -c - > {output.refgtf}
         wget -O - {config[ref_genome_url]} | gunzip -c - > /tmp/gencodePA_tmp.fa
@@ -131,23 +132,33 @@ rule downloadAnnotation:
         wget -O - {config[ensembl_gtf_url]} | gunzip -c - > {output.ensbl_gtf}
         wget -O - {config[refseq_ncbi_url]} | gunzip -c - > {output.refseq}
         wget -O {input.clinvar_sum} {config[clinvar_variant_url]}
+        
+        ## this part pulls GTF annotation from the UCSC annotation source
         module load {config[mysql_version]}
         module load {config[ucsc_version]}
         mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -N -e "select * from refGene" hg38 |\
         cut -f2- | genePredToGtf -source=hg38.refGene.ucsc file stdin {output.ucsc}
+        
         module load python/3.6
+        ## one of the downstream tools(cant remember which one) freaks out for some of the chromosome names
+        ## This script pulls out those bad names 
         python3 scripts/filterFasta.py /tmp/gencodePA_tmp.fa ref/chroms_to_remove {output.ref_gen}
+        
+        ## This script removes the `|` character from the gencode orginating fastas
         python3 scripts/clean_fasta.py /tmp/gencodeProtSeq.fa {output.prot_seq}
         module load {samtools_version}
         samtools faidx ref/gencode_genome.fa
         awk '$3 == "transcript"' ref/gencode_comp_ano.gtf | cut -f1,7,4,5 > ref/gencode_comp_ano_trim.tsv
         
+        ## pull CAGE and polyAsite data 
         wget -O ref/hg38_fair+new_CAGE_peaks_phase1and2.bed.gz https://fantom.gsc.riken.jp/5/datafiles/reprocessed/hg38_latest/extra/CAGE_peaks/hg38_fair+new_CAGE_peaks_phase1and2.bed.gz
         wget -O /tmp/polya.bed.gz 'https://polyasite.unibas.ch/download/atlas/2.0/GRCh38.96/atlas.clusters.2.0.GRCh38.96.bed.gz'
-        python3 /data/swamyvs/ChromosomeMappings/convert_notation.py  -c /data/swamyvs/ChromosomeMappings/GRCh38_ensembl2gencode.txt -f /tmp/polya.bed.gz | bedtools sort -i stdin > ref/polyAtlas_gencodechrom_hg38_sorted.bed
+        ### convert polyA annotation format 
+        git pull https://github.com/davemcg/ChromosomeMappings.git
+        python3 ChromosomeMappings/convert_notation.py  -c /data/swamyvs/ChromosomeMappings/GRCh38_ensembl2gencode.txt -f /tmp/polya.bed.gz | bedtools sort -i stdin > ref/polyAtlas_gencodechrom_hg38_sorted.bed
         
+        ### get HG19 annotation info for mapping intronic variants
         wget -O - ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_19/GRCh37.p13.genome.fa.gz | gunzip -c - > ref/hg19_gencode_genome.fa 
-
         wget -O ref/hg19ToHg38.over.chain.gz http://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz
 
         '''

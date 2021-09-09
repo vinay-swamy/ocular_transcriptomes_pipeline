@@ -23,8 +23,9 @@ list2env(parser$parse_args(), .GlobalEnv)
 source('scripts/write_gtf.R')
 source('scripts/shared_funcs.R')
 
-track_file <- glue('{prefix_for_gtfs}.tracking')
-raw_merged_gtf <- glue('{prefix_for_gtfs}.combined.gtf')
+## create input and output filenames
+track_file <- glue('{prefix_for_gtfs}.tracking') ## generated with gffcompare
+raw_merged_gtf <- glue('{prefix_for_gtfs}.combined.gtf') ## generated with gffcompare
 filtered_convtab_file <- glue('{prefix_for_gtfs}.convtab')
 filtered_gtf_file <-  glue('{prefix_for_gtfs}.combined.filtered.gtf')
 
@@ -32,6 +33,9 @@ filtered_gtf_file <-  glue('{prefix_for_gtfs}.combined.filtered.gtf')
 
 setwd(working_dir)
 
+
+## read in gtf output of stringtie, to pull out a matrix of transcript_id, TPM
+## TPM column will be sample name, ie SRSXXXX
 read_stringtie <- function(file, name ){
     df <- data.table::fread(file, sep='\t', header = F) %>% as_tibble %>% filter(V3 == "transcript")
     if (nrow(df) == 0) {return(tibble())}
@@ -44,9 +48,11 @@ read_stringtie <- function(file, name ){
 
 #### process track file into an id conversion table 
 
-conv_tab <- read_track_file(track_file)
+conv_tab <- read_track_file(track_file) ## sourced from scripts/shared_funcs.R
 
-#### read stringtie quantification
+#### read stringtie quantification and output a transcripts x per-sample TPM matrix
+### use conv tab to map to common identifiers
+## NAs will be generated for transcripts NOT detected in a sample
 samples <- read_tsv(sample_table_file) %>% filter(subtissue  == t_subtissue) %>% pull(sample)
 st_files <- paste0(path_to_stringtie_gtfs, samples, '.gtf')
 all(file.exists(st_files))
@@ -55,12 +61,13 @@ stringtie_quant <- lapply(seq_along(st_files), function(i) read_stringtie(st_fil
                               select(-(!!samples[i]))  %>% rename(!!samples[i]:=TPM)) %>% 
     reduce(full_join) %>% 
     select(transcript_id, everything())
+## NAs are transcripts not detected in a sample, so set to 0
 stringtie_quant[is.na(stringtie_quant)] <- 0
 
-
+## keep transcripts that have an averge TPM of 1 ( remember this is on a per-tissue basis, so we should see consistency here)
 quant_filtered <- stringtie_quant %>% filter(rowMeans(.[,samples])>=1)
 conv_tab_filtered <- conv_tab %>% filter(transcript_id %in% quant_filtered$transcript_id)
-gtf <- rtracklayer::readGFF(raw_merged_gtf)
+gtf <- rtracklayer::readGFF(raw_merged_gtf) ## this is from the gffcompare call previously in this rule
 filtered_gtf <- gtf %>% filter(transcript_id %in% conv_tab_filtered$transcript_id)
 write_gtf3(filtered_gtf, filtered_gtf_file)
 fwrite(conv_tab_filtered, file = filtered_convtab_file, sep = '\t')

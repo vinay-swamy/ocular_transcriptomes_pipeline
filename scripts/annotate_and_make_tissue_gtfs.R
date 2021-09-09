@@ -18,13 +18,22 @@ list2env(parser$parse_args(), .GlobalEnv)
 ###### 
 
 
+#########
+# OVERVIEW
+# 
+
+
+
+
 source('~/scripts/write_gtf.R')
 setwd(working_dir)
 files <- read_yaml(file_yaml)
 filt_gtf_path <- files$raw_gtf_path
 final_gtf_path <-files$final_gtf_path
 
-#read in agat gff, compare its annotated start stops to actual cds, remove cds that shirnk/grow too much and then 
+### OVERVIEW
+# read in agat gff, compare its annotated starts and stops to actual cds keeping only those ; 
+# remove cds that shirnk/grow too much and then 
 # appropriately reclassify everything 
 agat_gff3 <- rtracklayer::readGFF(agat_gff3_file) %>% as_tibble %>% 
     unnest(Parent) %>%  
@@ -48,6 +57,8 @@ base_dntx_gtf <- rtracklayer::readGFF(files$base_all_tissue_gtf) %>%
 
 ref_gtf <- rtracklayer::readGFF(files$ref_GTF)
 # calcualte cds lengths, and remove CDS lengths that are 200 aa longer than the longest isoform of the parent gene
+# why did I do this? read a paper some where that also did it, plus it only affects like bottom 1% of transcripts 
+
 ref_cds_lengths <- ref_gtf %>% 
     filter(transcript_type == 'protein_coding', type == 'CDS') %>% 
     mutate(length = end-start) %>% 
@@ -121,7 +132,7 @@ negative_cds_ends <- negative_cds %>%
               start=start[which.min(start)], 
               end=end[which.min(start)]) %>% 
     mutate(is_terminal_cds=TRUE)
-
+# merge em together 
 clean_cds_gtf<-  bind_rows(positve_cds_ends, negative_cds_ends) %>% 
     distinct %>% 
     left_join(all_cds, .) %>% 
@@ -160,8 +171,9 @@ final_gtf_sorted <- final_gtf %>%
     mutate(transcript_id = as.character(transcript_id), 
            transcript_id = replace(transcript_id, transcript_id == '^', NA))
 ######## run a GTF integrety check against the gencode reference 
-# final_gtf_sorted <- rtracklayer::readGFF('/data/swamyvs/ocular_transcriptomes_pipeline/data/gtfs/all_tissues.combined_annotated.gtf')
-# tx2gene <- final_gtf_sorted  %>% filter(type == 'transcript') %>% select(transcript_id, gene_id, gene_name) %>% distinct
+## compare coordinates of CDS stasrt stop etc of our gtf with gencode gtf(only transcripts common to both obvi)
+## not checking every transcript, but grabbing 100 to check, generally between 80-90% match 
+
 sample_table <- read_tsv(files$sample_table)
 conv_tab <- fread(files$all2tissue_convtab, sep = '\t') %>% as_tibble %>% left_join(tx2gene %>% select(transcript_id, gene_name),.)
 check_type_integreity <- function(gencode, dntx, c_type){
@@ -222,11 +234,15 @@ stopifnot(all(finished %>% unlist))
 ####### now run the analysis to make the master gtf ########
 ############################################################
 
+## this next part is complicated, but it basically puts exons into different catagories based on their 
+## position within the transcrip
+
 load(files$ref_tx_exon_rdata)
 
 conv_tab <- fread(files$all2tissue_convtab, sep = '\t') %>% as_tibble %>% left_join(tx2gene %>% select(transcript_id, gene_name),.)
 gfc_gtf <- final_gtf_sorted
 
+## make sure there are no novel transcripts in the reference 
 novel_transcripts <- filter(gfc_gtf, !class_code %in% c('=', 'u'), type == 'transcript') 
 built_ref_tx <- filter(gfc_gtf, type == 'transcript', class_code == '=') %>% inner_join(all_transcripts) 
 novel_loci <-  gfc_gtf %>% filter(type == 'transcript', class_code == 'u') %>%  anti_join( all_transcripts)
@@ -240,7 +256,7 @@ novel_single_exon_tx <- novel_transcripts$transcript_id %>%
 
 
 # remove novel loci that overlap with known genes, padded 5kb upstream and downstreqam, and overlap known repeat regions
-## 
+## this was done was part of the CHESS paper
 pad=2000
 all_transcript_bed <- all_transcripts %>%
     mutate(score=999, start=start - pad, end= end+pad,start=replace(start, start<0, 0)) %>% 
@@ -271,7 +287,12 @@ novel_loc_bed <- novel_loci_distinct %>%
     RBedtools('sort', output = files$novel_loci_bed, i=.)
     
 
-
+#### now analyze novel exons, based on their starts and ends
+### the logic is as follows:
+### - anything with novel start/end + annotated start/end is a splice site variation
+### - a novel exon with both a known start and end is a retained intron
+### - a novel exon with both novel ends and starts is a fully novel exon; note this does not discriminate 
+###   betwween truly novel exons and exons that have a multi-splice site change, but we handle it later 
 novel_exons <- gfc_gtf %>% 
     filter(type == 'exon', !transcript_id %in% novel_loci$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id ) %>%
     select(seqid, strand, start, end) %>% 
@@ -292,7 +313,7 @@ novel_exons <- novel_exons %>% mutate(nv_type=case_when(nvl_start & nvl_end ~ 'n
 gfc_gtf_ano <- filter(gfc_gtf, !transcript_id %in% novel_loci$transcript_id)
 gfc_gtf_ref <- filter(gfc_gtf_ano, !transcript_id %in% novel_transcripts$transcript_id)
 
-# dont include novel single exons in the exon analysis
+# dont include novel single exon transcripts in the exon analysis 
 gfc_gtf_full <-  gfc_gtf_ano %>% 
     filter(transcript_id  %in% novel_transcripts$transcript_id, !transcript_id %in% novel_single_exon_tx$transcript_id) %>% 
     select(seqid, strand, start, end) %>%
@@ -304,7 +325,8 @@ gfc_gtf_full <-  gfc_gtf_ano %>%
     left_join(gfc_gtf_ano, .) %>% mutate(is.novel=replace_na(is.novel, F))
 
 ###
-#This is only looking at NOVEL starts and ends 
+#This next part is only looking at NOVEL transcription start sites and novel transcription end sites
+# so we can annotate novel first and last exons(novelty due to alt promoter usage or alt polyA)
 ###
 ## group transcripts with the same TSS together, and generate a set of unique TSS
 same_start <-  gfc_gtf_full %>% filter(exon_number==1) %>%
@@ -341,6 +363,9 @@ uniq_ends_multi_gene <- novel_exons %>% mutate(novel_end=nvl_end) %>% select(seq
     filter(novel_end) %>% distinct %>% 
     left_join(uniq_ends, .) %>% mutate(novel_end=replace_na(novel_end, F)) %>% filter(gene_name %in% multi_end_genes)
 
+
+### now merge everything together 
+
 novel_exons_TSES <- novel_exons %>% left_join( uniq_start_multi_gene %>% select(seqid, strand, start, novel_start) %>% distinct) %>% 
     left_join(uniq_ends_multi_gene %>% select(seqid, strand, end, novel_end)) %>% rename(novelTSS=novel_start, novelTES=novel_end)
 novel_exons_TSES[is.na(novel_exons_TSES)] <- F
@@ -356,7 +381,7 @@ save(uniq_start_multi_gene,
      uniq_ends_multi_gene, 
      novel_loci_distinct, 
      novel_transcripts, file = files$exon_class_rdata)
-#now lets make a formated_gtf that we can use for everything
+#now lets make a formated_gtf that we can use for everythingß0
 ##this should have: transcript_type:pc, or not pc., exon_coding as well as is.novel exon, 
 ##novel exon type, first or last exon, single exon
 

@@ -55,6 +55,11 @@ replace_nan <- function(df) {
     
 }
 
+
+### Currently, all the transcript IDs have are based on the DNTX naming, but i want to change it so that
+### only novel transcript ids wills have DNTX, and annotated ones have ENST...
+### this new_tx_id column will eventually become the transcript_id column. 
+### its gonna get changed a bunch, but eventually it will get there
 message('tidying data')
 gtf <- rtracklayer::readGFF(files$anno_all_tissue_gtf)
 convtab <- fread(files$all2tissue_convtab) %>% as_tibble
@@ -99,23 +104,34 @@ uexon_bed <- unique_exons %>% mutate(score = 999) %>% select(seqid,start, end, e
 test_bed <- unique_exons %>% sample_n(1000) %>% mutate(score = 999) %>% select(seqid,start, end, exon_id, score, strand)
 write_tsv(test_bed, 'testing/gtf_bed_for_testing.bed', col_names = F)
 
+
+## intersect exons with phylop coverage; this will take a very long time 
 exon_pp_bed <- RBedtools('intersect', options = '-wa -wb -sorted', output = 'stdout', a=uexon_bed, b=files$phylop_scores) %>%
         RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 11 -o mean',i= .) %>%
         to_data_frame %>%
         select(exon_id=X4, mean_phylop_score=X7)
 
 
-# intersect with strand specific
+## intersect exons with snp locations ; this will take a very long time 
 exon_snp_bed <- RBedtools('intersect', options = ' -s -wa -wb -sorted ', output = 'stdout', a=uexon_bed, b=files$snps_locs) %>%
     RBedtools('groupby', options ='-g 1,2,3,4,5,6 -c 10 -o collapse ',i= .) %>%
     to_data_frame %>%
     select(exon_id=X4, snps=X7)
 save(exon_pp_bed, exon_snp_bed, file = 'testing/exons_snps_phylop.Rdata')
 #load('testing/exons_snps_phylop.Rdata')
+
+## read in "det files", which tell you which transcripts are detected in which samples
+## one file per tissue
+
+## calculate the number of samples in each tissue the transcript is detected in 
 all_det <- lapply(subtissues, function(tis) 
                     gsub(pattern = 'REPLACE', replacement = tis, x = dd_stem) %>% {process_det_files(.,tis)}) %>% 
     reduce(full_join) %>% inner_join(t2g, .)
 all_det[is.na(all_det)] <- 0    
+
+### calculate percent isoform usage
+### for each transcript in each sample, divide transcript expression by its parent genes'total expression
+### the PIU for all transcripts in a gene should therefore sum to 1 
 
 message('calculating PIU')
 samples_per_tissue <-  sample_table %>% group_by(subtissue) %>% summarise(count=n()) %>% filter(subtissue %in% subtissues)# REMOVE ME
@@ -127,7 +143,7 @@ colnames(frac_samp_det) <- names(samples_per_tissue_list)
 frac_samp_det <- frac_samp_det %>% as_tibble() %>% bind_cols(all_det[,c('transcript_id','gene_name', 'new_tx_id')], .)
 
 
-
+## load quant and summarise to the tissue level
 load(files$all_tissue_quant)
 all_quant[is.na(all_quant)] <- 0
 message('The following samples are missing from the quant file:')
@@ -146,7 +162,7 @@ piu <-replace_nan(piu_raw)
 
 
 
-# fix transcript id column
+### now we finally set transcript_id  = to new_id
 gtf <- gtf %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) %>% left_join(unique_exons) %>% 
     mutate(seqid=as.character(seqid))
 frac_samp_det <- frac_samp_det %>% select(-transcript_id) %>% rename(transcript_id = new_tx_id) 
@@ -186,7 +202,8 @@ exon_df <- gtf %>% filter(type == 'exon') %>% mutate(score= 111) %>%
 exon_bed <- exon_df %>% from_data_frame %>% 
     RBedtools('sort', i=.)
 
-## an cds start/end can either overlap and exon, or land exactly on start/end of an exon 
+## a cds start/end can either overlap and exon, or land exactly on start/end of an exon 
+## go through that for the starts, then go through it for the ends 
 
 which_exon_overlaps_start <- RBedtools('intersect', options = '-s -wa -wb', a=exon_bed, b=cds_start_bed) %>% 
     to_data_frame %>% 
@@ -403,6 +420,8 @@ make_plotting_gtf_by_gene <- function(gtf, cds_df, cds_se,which_exon_overlaps_en
 
 set.seed(10021)
 all_genes <- gtf %>%  pull(gene_name) %>% unique()
+
+### this will take a long time
 plotting_gtf <- mclapply(all_genes, function(gene) 
       make_plotting_gtf_by_gene(gtf = gtf, cds_df = cds_df, cds_se = cds_se, 
                                  which_exon_overlaps_end = which_exon_overlaps_end,
@@ -427,6 +446,9 @@ message('plotting gtf successfully made. Generating DB')
 #save(plotting_gtf, file = 'data/shiny_data/plotting_GTF.Rdata')
 #----
 save.image('testing/all_prepped_shiny_data.Rdata')
+
+### we're done for the most part, now we're gonna write everything to a sqlite file 
+
 con <- dbConnect(RSQLite::SQLite(), files$shiny_db)
 dbWriteTable(con, 'gtf', gtf)
 dbSendQuery(con, 'CREATE INDEX gtf_ind ON gtf (gene_name, transcript_id)')

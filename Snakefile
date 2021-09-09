@@ -102,12 +102,11 @@ rule all:
     # input:stringtie_full_gtf,'data/exp_files/all_tissue_quant.tsv.gz','data/rmats/all_tissues_psi.tsv', 'data/rmats/all_tissues_incCounts.tsv', 'data/seqs/transdecoder_results/best_orfs.transdecoder.pep', 'data/rdata/novel_exon_classification.Rdata'
 
 '''
-****PART 1**** download files and align to genome
--still need to add missing fastq files
--gffread needs indexed fasta
--need to add versioning of tools to yaml{DONE}
-04/08/2019 - added the mysql command to get a comprehensive refseq gtf from ucsc, which is somehow different than the one
-from ncbi. see https://bioinformatics.stackexchange.com/questions/2548/hg38-gtf-file-with-refseq-annotations
+### download and pre-process annotation
+(downloadAnnotation, liftover_intronic_variants, clean_phylop_and_snps)
+- **Do not re-run unless you absolutely have to**
+- we need to pull annotation from a bunch of different places, so there's a lot of stuff going on 
+- some of the annotation files will need to be transformed a little to get it into the right format(see rules for more specific info)
 '''
 
 rule downloadAnnotation:
@@ -181,6 +180,11 @@ rule liftover_intronic_variants:
             {ref_genome} \
             {output.hg38_vcf}
         '''
+
+'''
+I have 0 idea why exactly I wrote the bash code, but it works.
+Do not re-run unless you absolutely have to 
+'''
 rule clean_phylop_and_snps:
     input: 
         snps=expand('ref/snps/bed_chr_{chrom}.bed.gz', chrom=list(range(23))[1:]), 
@@ -194,7 +198,7 @@ rule clean_phylop_and_snps:
         mkdir snp_tmp
         module load {config[ucsc_version]}
         module load {bedops_version}
-        moulde load {bedtools_version}
+        module load {bedtools_version}
         bigWigToWig {input.pp} | wig2bed | bedtools sort -i - | gzip -c - > {output.pp}
         for i in ref/snps/bed_chr_*.bed.gz ; do zcat $i | tail -n+2   > snp_tmp/snps.bed 
         awk '$2 != $3{OFS="\t"; print $0}' snp_tmp/snps.bed  > snp_tmp/good_snps.bed 
@@ -202,7 +206,9 @@ rule clean_phylop_and_snps:
         rm -rf snp_tmp
         '''
 
-# This is manily for rerunning on biowulf,
+'''
+this is used for  extracting transcript sequences from GTF
+'''
 rule build_gffread:
     output:'gffread/gffread'
     shell:
@@ -212,6 +218,17 @@ rule build_gffread:
         cd gffread
         make release
         '''
+
+
+
+'''
+### Alignment
+- **Do not re-run unless you absolutely have to**
+- The pipeline requires on-disk fastq files to run, set by `fastq_path` in `config.yaml`. Currently its in `/data/OGVFB_BG/EiaD_2019_05/`
+- the BAM files from the last run are stored in `/data/swamyvs/DNTX_STARbams` 
+- sometimes STAR hangs and the alignment will fail, so might have to try it a couple times 
+- STAR does have its own option to sort output, but it was causing a lot of problems so I made sorting its own rule
+'''
 
 rule build_STARindex:
     input: ref_genome, ref_GTF
@@ -233,6 +250,7 @@ rule run_STAR_alignment:
         id={wildcards.id}
         mkdir -p STARbams/$id
         module load {STAR_version}
+        ## the flag  --outSAMstrandField intronMotif is required for stringtie
         STAR --runThreadN 8 --genomeDir {input.index} --outSAMstrandField intronMotif  --readFilesIn {input.fastqs} \
         --readFilesCommand gunzip -c --outFileNamePrefix STARbams/$id/raw. --outSAMtype BAM Unsorted
         '''
@@ -249,7 +267,11 @@ rule sort_bams:
 
 
 '''
-****PART 2**** build Transcriptome, and process
+### transcriptome construction
+- **Do not re-run unless you absolutely have to**
+- build on a per-sample wildcard level, with default parameters
+- have extensively tested out some of the other modes, this is the best way to do it
+
 '''
 rule run_stringtie:
     input:bam_path + 'STARbams/{sample}/Sorted.out.bam'
@@ -259,6 +281,12 @@ rule run_stringtie:
         module load {stringtie_version}
         stringtie {input[0]} -o {output[0]} -l {wildcards.sample} -p 8 -G {ref_GTF}
         '''
+
+
+
+'''
+This calculates per-sample genome coverage, which will later be intersected down to specific transcripts 
+'''
 
 rule calculate_cov:
     input:bam_path+'STARbams/{id}/Sorted.out.bam'
@@ -270,7 +298,10 @@ rule calculate_cov:
         mosdepth coverage_files/$sample/cov {input[0]}
         '''
 
-
+'''
+aggregate sample level gtfs to a single file per tissue, filtering out transcripts based on expression
+See script for more comments
+'''
 rule merge_gtfs_to_tissue:
     input:
         gtfs = lambda wildcards: subtissue_to_gtf(wildcards.subtissue, sample_dict)
@@ -292,6 +323,11 @@ rule merge_gtfs_to_tissue:
             --gtfDir {params.outdir} \
             --stringtieQuant {params.st_quant_dir}
         '''
+
+'''
+merge all tissue specifc gtfs into a single master gtf (all_tissues.combined.gtf)
+see script for more comments 
+'''
 
 rule merge_all_gtfs:
     input: 
@@ -333,6 +369,7 @@ rule make_tx_fasta:
 
 '''
 pulled this from the trinnotate pipeline, makes a gff of the of using protein translations
+gff3 is needed for vep
 '''
 rule run_trans_decoder:
     input:
@@ -358,6 +395,11 @@ rule run_trans_decoder:
         mv transcripts.fasta.transdecoder.*  ../data/seqs/transdecoder_results/
         '''
 #
+
+'''
+the header for the transdecoder pep file has a bunch of junk in it, so dropeverything but the header
+and write the other info to its own file 
+'''
 rule clean_pep:
     input:
         'data/seqs/transdecoder_results/transcripts.fasta.transdecoder.pep'
@@ -369,6 +411,15 @@ rule clean_pep:
         python3 scripts/clean_pep.py {input} {output.pep} {output.meta_info}
         '''
                 #python3 scripts/fix_prot_seqs.py /tmp/tmpvs.fasta  {output.pep} {output.len_cor_tab}
+
+'''
+this one is a handful
+the agat script adds start and stop entries to the agat gff3; it only does this for valid start and stop codons.
+this is important becasue some of the transdecoder ORFs are truncated.
+the R script reads in the revised gff, and keeps only the  
+'''
+
+
 
 rule process_and_annotate_master_gtf:
     input: 
@@ -408,6 +459,10 @@ rule process_and_annotate_master_gtf:
         cp {ref_GTF} {output.gencode_dummy}
         '''
 
+'''
+Run ensembls's variant effect predcitor using our annotation, against the intronic variants we made earlier 
+'''
+
 
 rule run_vep:
     input:
@@ -428,6 +483,9 @@ rule run_vep:
         vep -i {input.vcf} --gtf {output.gtf} --fasta {ref_genome} -o {output.variant_summary}
         '''
 
+'''
+Thess two rules arent run anymore, but was used as a spot check for something someonehad asked for 
+'''
 
 rule get_genes_for_cov_analysis:
     input: full_gtf = files['anno_all_tissue_gtf']
@@ -455,6 +513,9 @@ rule intersect_coverage:
         bedtools intersect -a {input.cov} -b {input.bed} > {output}
         '''
 
+'''
+Quantify transcirpt expression based using a tissue specific quantification index built from the tissue specific gtfs 
+'''
 
 rule build_salmon_index:
     input: 
@@ -494,6 +555,10 @@ def all_quant_input(eye_tissues, sample_dict):
             res.append(f'data/salmon_quant/pan_eye/{key}/quant.sf')
     return res 
 
+'''
+read together all salmon quant to give us a single genes X samples matrix of TPM expression for all samples across all tissues 
+'''
+
 
 rule merge_all_salmon_quant:
     input:
@@ -521,6 +586,9 @@ have to manually download this from UCSC
 table browser > group=repeats, track=RepeatMasker
 '''
 
+'''
+identify the potential function of novel protein coding loci, first using blastp, and next using hmmer 
+'''
 
 rule blastp_novel_loci:
     input: 
@@ -560,6 +628,10 @@ rule run_hmmscan:
          '''
 
 
+'''
+This script is a long one, and basically cleans up all the data and re-structres it into a sqlite file to use with the webapp
+'''
+
 rule prep_shiny_data:
     input: 
         ano_gtf = files['anno_all_tissue_gtf'], \
@@ -588,6 +660,7 @@ rule prep_shiny_data:
         touch data/shiny_data/debug/special_is_funky.txt
         touch data/shiny_data/debug/bad_genes.txt
         touch data/shiny_data/debug/igap_below_gap.txt
+        ## ^ these are all logfiles that might be written
         module load {R_version}
         module load {bedtools_version}
         Rscript scripts/prep_data_for_shiny.R \

@@ -51,14 +51,35 @@ Here are the major steps for the pipeline:
 - merge transcriptomes to tissue level, then merge all tissue to full gtf
 - calculate and cleanup ORFs for novel transcripts 
 - create full annotated master GTF
-- predict effect of 
+- predict effect of variants based on new annotation
+- calculate transcript coverage 
+- quantify with salmon 
+- annotate ORFs with potenial function
+- create sqlite db for use with shiny app
 
+Note that several of these steps will run concurrently. The most time consuming steps are alignment and building the initial transcriptomes; these should not be re-run if possible
 
+See the Snakefile and scripts for more in depth comments on what to do 
+
+### download and pre-process annotation
+(downloadAnnotation, liftover_intronic_variants, clean_phylop_and_snps)
+- **Do not re-run unless you absolutely have to**
+- we need to pull annotation from a bunch of different places, so there's a lot of stuff going on 
+- some of the annotation files will need to be transformed a little to get it into the right format(see rules for more specific info)
+-
 
 ### Alignment
-- **Do not re-run alignment unless you absolutely have to**
+- **Do not re-run unless you absolutely have to**
 - The pipeline requires on-disk fastq files to run, set by `fastq_path` in `config.yaml`. Currently its in `/data/OGVFB_BG/EiaD_2019_05/`
-- the BAM files from the last run are stored in `/data/swamyvs/DNTX_STARbams`
+- the BAM files from the last run are stored in `/data/swamyvs/DNTX_STARbams` 
+- sometimes STAR hangs and the alignment will fail, so might have to try it a couple times 
+- STAR does have its own option to sort output, but it was causing a lot of problems so I made sorting its own rule
 
+### transcriptome construction
+- **Do not re-run unless you absolutely have to**
+- build on a per-sample wildcard level, with default parameters
+- have extensively tested out some of the other modes, this is the best way to do it
 
-TEST
+## Important files
+- "trackfile" - output of gffcompares, has the prefix `.tracking`. This is often refered to as `conv_tab` in scripts. Its outputed by `gffcompare`.  gffcompare is used to compare transcripts across multiple gtf files. this file contains the union of all transcripts being compared, with a unique id for each, and which others gtf(s) have transcripts that match it
+

@@ -5,6 +5,12 @@ library(yaml)
 library(parallel)
 library(argparse)
 
+
+##this script merges the tissue level GTFs into a single file
+## occasionally, a transcript in a tissue gtf will map to multiple in the master GTF, which causes problems 
+## this is dealt with in the process columns function 
+
+
 parser <- ArgumentParser()
 parser$add_argument('--workingDir', action = 'store', dest='working_dir')
 parser$add_argument('--filesYaml', action = 'store', dest = 'files_yaml')
@@ -24,6 +30,10 @@ nm_col_clean <- function(col){
 }#slightly slower version of nm_col, but works for all cases
 
 
+
+## the exact specifcs are not super clear to me here
+## essentially it boils down to checking how many matches a tissue gtf transcript has in the fully merged one, 
+## splitting it up into two lists, a good one with 1:1 mapping, and a bad one w/o 
 process_columns <- function(tab,col_name){
     tab <- tab %>% filter( (!! rlang::sym(col_name)) != '-')
     col <- tab %>% pull(!!col_name)
@@ -73,7 +83,7 @@ conv_tab <- read_track_file(files$all2tissue_tracking) %>% mutate(refid = str_sp
 sample_table <- read_tsv(files$sample_table_file)
 subtissues <- unique(sample_table$subtissue)
 full_gtf <- rtracklayer::readGFF(files$base_all_tissue_gtf)
-#### there are some cases where the same reference transcript maps to multiple DNTX transcripts 
+#### there are some cases where the same reference(from the gencode transcript) transcript maps to multiple DNTX transcripts 
 conv_tab_ref_bad_match <- filter(conv_tab, class_code == '=') %>% 
     filter(duplicated(refid)) %>% 
     pull(refid) %>% 
@@ -92,7 +102,7 @@ conv_tab <- conv_tab %>% mutate(class_code = replace(class_code, transcript_id %
 ####
 fwrite(conv_tab, files$all2tissue_convtab, sep = '\t')
 
-####now make the pan-eye gtfs
+####now make the pan-eye gtfs, ie filter down to just eye tissuses; these are mainly for paper, not used a ton in downtream analysis
 path_to_eye_gtfs <- 'data/gtfs/pan_eye'
 eye_tissues <- c('Retina_Adult.Tissue', 'Retina_Fetal.Tissue', 'RPE_Adult.Tissue', 
                  'RPE_Fetal.Tissue', 'Cornea_Adult.Tissue', 'Cornea_Fetal.Tissue')
